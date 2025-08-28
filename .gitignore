@@ -1,0 +1,34 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+#front
+pixel_front/node_modules/
+pixel_front/dist/
+pixel_front/*.example
+*.local
+
+#back
+pixel_back/.idea/
+pixel_back/tests/
+pixel_back/.env
+pixel_back/*.sql
+pixel_back/*.bat
+pixel_back/*.sh
+pixel_back/*.http
