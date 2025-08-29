@@ -8,6 +8,8 @@ from datetime import datetime
 import json
 import os
 import time
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from app.utils.utils import color_array_to_png
 
 
@@ -49,28 +51,48 @@ class CanvasService:
             logger.error(f"Error processing pixel update: {str(e)}", exc_info=True)
             raise
             
+    async def _save_snapshot_image(self, canvas_data: list) -> str:
+        """Save snapshot image in a thread pool to avoid blocking the event loop."""
+        loop = asyncio.get_event_loop()
+        with ThreadPoolExecutor() as executor:
+            # Run the blocking image creation in a separate thread
+            filepath = await loop.run_in_executor(
+                executor, 
+                self._create_and_save_image,
+                canvas_data
+            )
+            return filepath
+    
+    def _create_and_save_image(self, canvas_data: list) -> str:
+        """Create and save image in a separate thread."""
+        # Ensure snapshot directory exists
+        os.makedirs(SNAPSHOT_DIRECTORY, exist_ok=True)
+        
+        # Create snapshot file
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"snapshot_{timestamp}.png"
+        filepath = os.path.join(SNAPSHOT_DIRECTORY, filename)
+
+        # Convert color array to PNG and save to file
+        color_array_to_png(canvas_data, CANVAS_WIDTH, CANVAS_HEIGHT, filepath)
+        return filepath
+    
     async def create_snapshot(self, last_log_id: int) -> str:
         """Create a snapshot of the current canvas state as a PNG image."""
 
         try:
-            # Ensure snapshot directory exists
-            os.makedirs(SNAPSHOT_DIRECTORY, exist_ok=True)
             # Get canvas data from Redis
             canvas_data = await self.redis_store.get_canvas()
             
-            # Create snapshot file
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"snapshot_{timestamp}.png"
-            filepath = os.path.join(SNAPSHOT_DIRECTORY, filename)
-
-            # Convert color array to PNG and save to file
-            color_array_to_png(canvas_data, CANVAS_WIDTH, CANVAS_HEIGHT, filepath)
+            # Save image in a separate thread to avoid blocking the event loop
+            filepath = await self._save_snapshot_image(canvas_data)
                 
             # Save only the filename to database (not the full path)
             # Use the provided session without explicit commit
-            snapshot = await create_snapshot(self.db, last_log_id, filename)
+            snapshot = await create_snapshot(self.db, last_log_id, os.path.basename(filepath))
             logger.info(f"Created snapshot: {filepath}")
-            return filename
+            return os.path.basename(filepath)
 
         except Exception as e:
+            logger.error(f"Error creating snapshot: {str(e)}", exc_info=True)
             raise

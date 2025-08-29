@@ -12,8 +12,8 @@ from contextlib import asynccontextmanager
 # Global Redis connection pool
 redis_pool = None
 
-# Global variable to track number of pixel logs since last snapshot
-pixel_logs_since_last_snapshot = 0
+# Redis key for pixel logs counter
+PIXEL_LOGS_COUNTER_KEY = "pixel_logs_since_last_snapshot"
 
 
 def create_redis_pool():
@@ -32,12 +32,22 @@ def create_redis_pool():
 
 
 @asynccontextmanager
+async def get_redis_connection():
+    """Get a Redis connection from the pool as a context manager."""
+    redis_conn = aioredis.Redis(connection_pool=redis_pool)
+    try:
+        yield redis_conn
+    finally:
+        await redis_conn.close()
+
+
+@asynccontextmanager
 async def get_db_session() -> AsyncSession:
     """提供一个带自动事务管理的数据库会话上下文管理器。
-    
+
     使用此函数时，数据库操作将在事务中执行，并在成功时自动提交，
     在发生异常时自动回滚。
-    
+
     用法示例:
     async with get_db_session() as db_session:
         # 执行数据库操作
@@ -62,26 +72,30 @@ async def initialize_pixel_logs_counter(db: AsyncSession) -> int:
     Returns:
         The number of pixel logs since the last snapshot.
     """
-    global pixel_logs_since_last_snapshot
-    
     # Get the latest snapshot
     latest_snapshot = await get_latest_snapshot(db)
     result = await get_pixel_logs_after_id(db, latest_snapshot.last_log_id if latest_snapshot else 0)
-    pixel_logs_since_last_snapshot = len(result)
     
-    return pixel_logs_since_last_snapshot
+    # Store the count in Redis
+    async with get_redis_connection() as redis_conn:
+        count = len(result)
+        await redis_conn.set(PIXEL_LOGS_COUNTER_KEY, count)
+    
+    return count
 
 
-def increment_pixel_logs_counter():
+async def increment_pixel_logs_counter():
     """Increment the pixel logs counter by 1."""
-    global pixel_logs_since_last_snapshot
-    pixel_logs_since_last_snapshot += 1
+    async with get_redis_connection() as redis_conn:
+        count = await redis_conn.incr(PIXEL_LOGS_COUNTER_KEY)
+    return count
 
 
-def get_pixel_logs_count():
+async def get_pixel_logs_count():
     """Get the current pixel logs count since last snapshot."""
-    global pixel_logs_since_last_snapshot
-    return pixel_logs_since_last_snapshot
+    async with get_redis_connection() as redis_conn:
+        count = await redis_conn.get(PIXEL_LOGS_COUNTER_KEY)
+    return int(count) if count is not None else 0
 
 
 def should_create_snapshot(threshold: int = SNAPSHOT_THRESHOLD) -> bool:
@@ -93,10 +107,24 @@ def should_create_snapshot(threshold: int = SNAPSHOT_THRESHOLD) -> bool:
     Returns:
         True if a snapshot should be created, False otherwise.
     """
-    return get_pixel_logs_count() >= threshold
+    # This function needs to be async now
+    raise RuntimeError("should_create_snapshot should be called as async_should_create_snapshot")
 
 
-def reset_pixel_logs_counter():
+async def async_should_create_snapshot(threshold: int = SNAPSHOT_THRESHOLD) -> bool:
+    """Async check if a snapshot should be created based on the pixel logs count.
+    
+    Args:
+        threshold: The number of logs that triggers a snapshot creation.
+        
+    Returns:
+        True if a snapshot should be created, False otherwise.
+    """
+    count = await get_pixel_logs_count()
+    return count >= threshold
+
+
+async def reset_pixel_logs_counter():
     """Reset the pixel logs counter to 0 after creating a snapshot."""
-    global pixel_logs_since_last_snapshot
-    pixel_logs_since_last_snapshot = 0
+    async with get_redis_connection() as redis_conn:
+        await redis_conn.set(PIXEL_LOGS_COUNTER_KEY, 0)

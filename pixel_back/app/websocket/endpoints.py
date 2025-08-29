@@ -48,12 +48,11 @@ async def canvas_websocket(websocket: WebSocket):
                 async with deps.get_db_session() as db_session:
                     canvas_service = CanvasService(canvas_store, db_session)
                     log_id = await canvas_service.process_pixel_update(event)
-                    deps.increment_pixel_logs_counter()
+                    await deps.increment_pixel_logs_counter()
                     # 检查是否需要创建快照
-                    if deps.should_create_snapshot():
+                    if await deps.async_should_create_snapshot():
+                        await deps.reset_pixel_logs_counter()
                         snapshot = await canvas_service.create_snapshot(log_id)
-                        deps.reset_pixel_logs_counter()
-                
                 # 发送更新并记录执行时间
                 start_time = time.time()
                 await manager.broadcast(json.dumps({"type": "pixel_update", "data": message["data"]}))
