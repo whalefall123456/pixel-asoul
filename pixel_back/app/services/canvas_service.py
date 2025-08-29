@@ -11,6 +11,7 @@ import time
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from app.utils.utils import color_array_to_png
+import traceback
 
 
 class CanvasService:
@@ -79,18 +80,31 @@ class CanvasService:
     
     async def create_snapshot(self, last_log_id: int) -> str:
         """Create a snapshot of the current canvas state as a PNG image."""
-
+        start_time = time.time()
         try:
-            # Get canvas data from Redis
+            logger.info("Starting snapshot creation process")
+            
+            # Get canvas data from Redis directly (no need to use thread pool for async operation)
+            redis_start_time = time.time()
             canvas_data = await self.redis_store.get_canvas()
+            redis_time = time.time() - redis_start_time
+            logger.info(f"Retrieved canvas data from Redis in {redis_time:.2f} seconds")
             
             # Save image in a separate thread to avoid blocking the event loop
+            image_start_time = time.time()
             filepath = await self._save_snapshot_image(canvas_data)
+            image_time = time.time() - image_start_time
+            logger.info(f"Saved snapshot image in {image_time:.2f} seconds")
                 
             # Save only the filename to database (not the full path)
             # Use the provided session without explicit commit
+            db_start_time = time.time()
             snapshot = await create_snapshot(self.db, last_log_id, os.path.basename(filepath))
-            logger.info(f"Created snapshot: {filepath}")
+            db_time = time.time() - db_start_time
+            logger.info(f"Saved snapshot metadata to database in {db_time:.2f} seconds")
+            
+            total_time = time.time() - start_time
+            logger.info(f"Created snapshot: {filepath} in {total_time:.2f} seconds")
             return os.path.basename(filepath)
 
         except Exception as e:
