@@ -16,12 +16,14 @@ manager = ConnectionManager()
 router = APIRouter()
 
 
-async def create_snapshot_background(last_log_id: int, canvas_service: CanvasService):
+async def create_snapshot_background(last_log_id: int, canvas_store: CanvasStore):
     """Background task to create snapshot without blocking the main event loop."""
     try:
         logger.info(f"Starting background snapshot creation for log ID: {last_log_id}")
         start_time = time.time()
-        snapshot = await canvas_service.create_snapshot(last_log_id)
+        async with deps.get_db_session() as db_session:
+            canvas_service = CanvasService(canvas_store, db_session)
+            snapshot = await canvas_service.create_snapshot(last_log_id)
         elapsed_time = time.time() - start_time
         logger.info(f"Background snapshot creation completed in {elapsed_time:.2f} seconds. Snapshot: {snapshot}")
     except Exception as e:
@@ -66,7 +68,7 @@ async def canvas_websocket(websocket: WebSocket):
                     if await deps.async_should_create_snapshot():
                         await deps.reset_pixel_logs_counter()
                         # 使用后台任务创建快照，避免阻塞WebSocket消息处理
-                        asyncio.create_task(create_snapshot_background(log_id, canvas_service))
+                        asyncio.create_task(create_snapshot_background(log_id, canvas_store))
                 
                 # 发送更新并记录执行时间
                 start_time = time.time()

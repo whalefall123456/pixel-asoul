@@ -98,19 +98,6 @@ async def get_pixel_logs_count():
     return int(count) if count is not None else 0
 
 
-def should_create_snapshot(threshold: int = SNAPSHOT_THRESHOLD) -> bool:
-    """Check if a snapshot should be created based on the pixel logs count.
-    
-    Args:
-        threshold: The number of logs that triggers a snapshot creation.
-        
-    Returns:
-        True if a snapshot should be created, False otherwise.
-    """
-    # This function needs to be async now
-    raise RuntimeError("should_create_snapshot should be called as async_should_create_snapshot")
-
-
 async def async_should_create_snapshot(threshold: int = SNAPSHOT_THRESHOLD) -> bool:
     """Async check if a snapshot should be created based on the pixel logs count.
     

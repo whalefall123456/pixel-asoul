@@ -85,7 +85,7 @@ function resetCanvasView() {
   color: #2c3e50;
   margin-top: 20px;
   width: 100%;
-  min-width: 1600px; /* 确保应用程序有最小宽度 */
+  /*min-width: 1600px;  确保应用程序有最小宽度 */
 }
 
 .title {
@@ -180,7 +180,28 @@ function resetCanvasView() {
   background-color: #45a049;
 }
 
-/* 响应式设计 - 保持水平布局，但在极小屏幕上调整 */
+/* 移动端自动缩放整个应用 */
+@media (max-width: 1600px) {
+  .app {
+    width: 1600px;
+    /* 使用负边距来居中缩放后的内容 */
+    margin-left: calc(50% - (1600px * (100vw / 1600px) / 2));
+    transform-origin: top left;
+    transform: scale(calc(100vw / 1600px));
+  }
+  
+  .main-container {
+    min-width: 1600px;
+  }
+  
+  .control-panel,
+  .info-panel {
+    width: 250px;
+    min-width: 250px;
+  }
+}
+
+/* 响应式设计 - 保持水平布局，但在极小屏幕上调整
 @media (max-width: 500px) {
   .main-container {
     flex-direction: column;
@@ -194,10 +215,10 @@ function resetCanvasView() {
   }
 }
 
-/* 添加媒体查询，确保在小屏幕上也能正常显示 */
+添加媒体查询，确保在小屏幕上也能正常显示
 @media (max-width: 768px) {
   .canvas-panel {
     overflow-x: auto;
   }
-}
+} */
 </style>
