@@ -30,3 +30,8 @@ PIXEL_LIMIT_PER_USER = int(os.getenv("PIXEL_LIMIT_PER_USER", 1))  # pixels per u
 SNAPSHOT_INTERVAL = int(os.getenv("SNAPSHOT_INTERVAL", 300))  # seconds between snapshots
 SNAPSHOT_DIRECTORY = os.getenv("SNAPSHOT_DIRECTORY", "snapshots")  # directory to store snapshot files
 SNAPSHOT_THRESHOLD = int(os.getenv("SNAPSHOT_THRESHOLD", 250))
+
+# limited configuration
+MAX_REQUESTS = int(os.getenv("MAX_REQUESTS", 20))
+WINDOW_SIZE_SECONDS = int(os.getenv("WINDOW_SIZE_SECONDS", 10))
+CLEANUP_INTERVAL_MINUTES = int(os.getenv("CLEANUP_INTERVAL_MINUTES", 60))

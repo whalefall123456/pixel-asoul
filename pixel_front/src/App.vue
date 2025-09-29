@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, provide } from 'vue';
 import CanvasBoard from './components/CanvasBoard.vue';
 import ColorPicker from './components/ColorPicker.vue';
 import CooldownTimer from './components/CooldownTimer.vue';
@@ -8,6 +8,21 @@ import ws from './utils/ws.js';
 // 状态管理
 const selectedColor = ref('#FF0000');
 const canvasBoard = ref(null);
+const cooldownTimer = ref(null);
+
+const cooldownEventBus = {
+  listeners: [],
+  emit(data) {
+    this.listeners.forEach(callback => callback(data))
+  },
+  on(callback) {
+    this.listeners.push(callback)
+  },
+  off(callback) {
+    this.listeners = this.listeners.filter(cb => cb !== callback)
+  }
+}
+provide('cooldownEventBus', cooldownEventBus)
 
 // 连接到WebSocket服务器
 onMounted(() => {
@@ -17,6 +32,18 @@ onMounted(() => {
     ? `wss://${window.location.host}/ws/canvas` 
     : `ws://${window.location.host}/ws/canvas`;
   ws.connect(wsUrl);
+
+  // 监听限制消息
+  ws.on('limited', (data) => {
+    // 显示提示信息
+    alert(data.error_message);
+    
+    // 通知 CooldownTimer 组件开始倒计时
+    if (cooldownTimer.value) {
+      cooldownTimer.value.startCooldown(data.limit_time);
+    }
+  });
+
 })
 
 // 重置画布视图
@@ -55,7 +82,7 @@ function resetCanvasView() {
           <ul>
             <li>在左侧选择颜色</li>
             <li>点击画布放置像素</li>
-            <li>可以随时放置像素</li>
+            <li>放置频率限制为平均2/s</li>
             <li>与其他用户实时协作创作</li>
             <li>鼠标滚轮缩放画布</li>
             <li>按住鼠标拖拽移动画布</li>

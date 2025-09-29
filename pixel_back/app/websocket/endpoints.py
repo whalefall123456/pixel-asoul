@@ -7,27 +7,16 @@ from redis import asyncio as aioredis
 import json
 import time
 import asyncio
-from app.services.canvas_service import CanvasService
-from app.websocket.manager import ConnectionManager
+from app.services.canvas_service import CanvasService, create_snapshot_background
+from app.websocket.manager import ConnectionManager, RateLimiter
+from datetime import datetime, timedelta
+from app.config import MAX_REQUESTS,WINDOW_SIZE_SECONDS,CLEANUP_INTERVAL_MINUTES
 
 # Create connection manager for this module
 manager = ConnectionManager()
+limiter = RateLimiter(max_requests=MAX_REQUESTS, window_size_seconds=WINDOW_SIZE_SECONDS, cleanup_interval_minutes=CLEANUP_INTERVAL_MINUTES)
 
 router = APIRouter()
-
-
-async def create_snapshot_background(last_log_id: int, canvas_store: CanvasStore):
-    """Background task to create snapshot without blocking the main event loop."""
-    try:
-        logger.info(f"Starting background snapshot creation for log ID: {last_log_id}")
-        start_time = time.time()
-        async with deps.get_db_session() as db_session:
-            canvas_service = CanvasService(canvas_store, db_session)
-            snapshot = await canvas_service.create_snapshot(last_log_id)
-        elapsed_time = time.time() - start_time
-        logger.info(f"Background snapshot creation completed in {elapsed_time:.2f} seconds. Snapshot: {snapshot}")
-    except Exception as e:
-        logger.error(f"Error creating snapshot in background: {str(e)}", exc_info=True)
 
 
 @router.websocket("/ws/canvas")
@@ -42,18 +31,26 @@ async def canvas_websocket(websocket: WebSocket):
     canvas_store = CanvasStore(redis)
     
     try:
-        # Send initial canvas state (no initialization needed now)
-
-        # canvas_data = await canvas_store.get_canvas()
-        #
-        # await manager.send_personal_message(
-        #     json.dumps({"type": "initial_canvas", "data": canvas_data}),
-        #     websocket
-        # )
-        
         while True:
             data = await websocket.receive_text()
             message = json.loads(data)
+            # 检查是否允许发送新请求
+            is_allowed = await limiter.is_allowed(connection_id)
+            if not is_allowed:
+                request_times, _ = limiter.clients[connection_id]
+                limit_time = WINDOW_SIZE_SECONDS - int((datetime.now() - request_times[0]).total_seconds())
+                await manager.send_personal_message(
+                    json.dumps({
+                        "type": "limited",
+                        "data": {
+                            "error_message": "频率过高，请稍后",
+                            "limit_time": limit_time
+                        }
+                    }),
+                    websocket
+                )
+                continue
+
             if message["type"] == "pixel_update":
                 # Process pixel update
                 event = PixelUpdateEvent(**message["data"])

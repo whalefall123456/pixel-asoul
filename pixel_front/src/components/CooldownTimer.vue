@@ -1,28 +1,47 @@
 <script setup>
-import { onMounted, onBeforeUnmount } from 'vue';
+import { onMounted, onBeforeUnmount, inject } from 'vue';
 import ws from '../utils/ws.js';
 
-// 冷却时间属性
-const props = defineProps({
-  initialCooldown: { type: Number, default: 5 } // 默认冷却时间为5秒
-});
+import { ref } from 'vue';
 
-// 初始化WebSocket监听器
-onMounted(() => {
-  // 移除对cooldown_update事件的监听
-});
+const isCoolingDown = ref(false);
+const remainingTime = ref(0);
+let countdownInterval = null;
 
-// 清理
-onBeforeUnmount(() => {
-  // 移除事件监听器清理
+const cooldownEventBus = inject('cooldownEventBus')
+
+// 暴露给父组件的方法
+defineExpose({
+  startCooldown
 });
+// 倒计时结束时通知
+function onFinish() {
+  cooldownEventBus.emit({ type: 'cooldown-end' })
+}
+function startCooldown(limitTime) {
+  isCoolingDown.value = true;
+  remainingTime.value = limitTime;
+  
+  clearInterval(countdownInterval);
+
+  countdownInterval = setInterval(() => {
+    remainingTime.value--;
+    if (remainingTime.value <= 0) {
+      clearInterval(countdownInterval);
+      isCoolingDown.value = false;
+      // 倒计时结束通知其他组件
+      onFinish();
+    }
+  }, 1000);
+}
+
 </script>
 
 <template>
   <div class="cooldown-display">
     <h3>冷却时间</h3>
     <div class="cooldown-timer">
-      可以随时放置像素
+      {{ isCoolingDown ? `${remainingTime}秒后可以放置像素` : '可以随时放置像素' }}
     </div>
   </div>
 </template>

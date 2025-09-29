@@ -1,3 +1,4 @@
+from app import deps
 from app.redis_store.canvas import CanvasStore
 from app.db.crud import create_pixel_log, get_latest_snapshot, create_snapshot
 from app.schemas.events import PixelUpdateEvent
@@ -5,13 +6,11 @@ from app.utils.logger import logger
 from app.config import SNAPSHOT_DIRECTORY, CANVAS_WIDTH, CANVAS_HEIGHT
 from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import datetime
-import json
 import os
 import time
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from app.utils.utils import color_array_to_png
-import traceback
 
 
 class CanvasService:
@@ -110,3 +109,17 @@ class CanvasService:
         except Exception as e:
             logger.error(f"Error creating snapshot: {str(e)}", exc_info=True)
             raise
+
+
+async def create_snapshot_background(last_log_id: int, canvas_store: CanvasStore):
+    """Background task to create snapshot without blocking the main event loop."""
+    try:
+        logger.info(f"Starting background snapshot creation for log ID: {last_log_id}")
+        start_time = time.time()
+        async with deps.get_db_session() as db_session:
+            canvas_service = CanvasService(canvas_store, db_session)
+            snapshot = await canvas_service.create_snapshot(last_log_id)
+        elapsed_time = time.time() - start_time
+        logger.info(f"Background snapshot creation completed in {elapsed_time:.2f} seconds. Snapshot: {snapshot}")
+    except Exception as e:
+        logger.error(f"Error creating snapshot in background: {str(e)}", exc_info=True)

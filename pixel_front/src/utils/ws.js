@@ -30,6 +30,8 @@ class WSClient {
           this.emit('initial_canvas', message.data);
         } else if (message.type === "pixel_update") {
           this.emit('pixel_update', message.data);
+        } else if (message.type === "limited") {
+          this.emit('limited', message.data);
         }
       } catch (error) {
         console.error('解析WebSocket消息失败:', error);

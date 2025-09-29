@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, onBeforeUnmount, watch, computed } from 'vue';
+import { ref, onMounted, onBeforeUnmount, watch, computed, inject } from 'vue';
 import ws from '../utils/ws.js';
 
 // 画布配置
@@ -10,6 +10,8 @@ const props = defineProps({
   selectedColor: { type: String, required: true },
 });
 
+const cooldownEventBus = inject('cooldownEventBus')
+const isCoolingDown = ref(false);
 const emit = defineEmits(['pixel-placed']);
 const containerRef = ref(null); // 新增：容器引用
 // 响应式状态（translate 以"像素"为单位）
@@ -52,6 +54,14 @@ const canvasTransformStyle = computed(() => ({
   transformOrigin: '0 0'
 }));
 
+
+
+
+// 计算鼠标样式
+const canvasCursor = computed(() => {
+  return isCoolingDown.value ? 'not-allowed' : 'pointer';
+});
+
 onMounted(async () => {
   const canvas = canvasRef.value;
   if (!canvas) return;
@@ -76,6 +86,17 @@ onMounted(async () => {
   ws.on('pixel_update', handlePixelUpdate);
   ws.on('initial_canvas', drawFullCanvas);
 
+  ws.on('limited', () => {
+    isCoolingDown.value = true;
+    // console.log('已进入冷却时间');
+    // 立即更新游标样式
+    if (canvasRef.value) {
+      canvasRef.value.style.cursor = 'not-allowed';
+    }
+  });
+
+  cooldownEventBus.on(handleCooldownEvent)
+
   // 初始指针
   canvas.style.cursor = 'pointer';
   
@@ -96,6 +117,7 @@ onBeforeUnmount(() => {
   }
   ws.off('pixel_update', handlePixelUpdate);
   ws.off('initial_canvas', drawFullCanvas);
+  cooldownEventBus.off(handleCooldownEvent)
 });
 
 
@@ -143,7 +165,12 @@ function handleMouseDown(event) {
   dragStartX.value = event.clientX; // 记录拖动开始位置
   dragStartY.value = event.clientY; // 记录拖动开始位置
   isDraggingForPlacement.value = false; // 重置拖动标记
-  if (canvasRef.value) canvasRef.value.style.cursor = 'grabbing';
+  if (canvasRef.value) {
+    // 只在非冷却状态下设置 grabbing cursor
+    if (!isCoolingDown.value) {
+      canvasRef.value.style.cursor = 'grabbing';
+    }
+  }
 }
 
 function handleMouseMove(event) {
@@ -174,7 +201,7 @@ function handleMouseUp() {
   
   isDragging.value = false;
   if (canvasRef.value) {
-    canvasRef.value.style.cursor = 'pointer';
+    canvasRef.value.style.cursor = isCoolingDown.value ? 'not-allowed' : 'pointer';
   }
 }
 
@@ -184,7 +211,9 @@ function handleCanvasClick(event) {
     isDraggingForPlacement.value = false; // 重置标记
     return;
   }
-  
+  //如果在冷却中，则不执行像素放置
+  if (isCoolingDown.value) return;
+
   if (!canvasRef.value) return;
 
   // 用"容器内容区"的局部坐标（不受 transform 影响，也不包含边框）
@@ -442,6 +471,18 @@ function getLocalPosInContainer(event) {
   return { x, y };
 }
 
+function handleCooldownEvent(event) { 
+  if (event.type === 'cooldown-end') {
+    // 处理冷却结束逻辑
+    isCoolingDown.value = false
+    // console.log('冷却结束')
+    // 立即更新游标样式
+    if (canvasRef.value) {
+      canvasRef.value.style.cursor = 'pointer';
+    }
+  }
+}
+
 // 暴露方法
 defineExpose({ resetView });
 </script>
@@ -452,7 +493,7 @@ defineExpose({ resetView });
     <canvas 
       ref="canvasRef"
       class="pixel-canvas"
-      :style="canvasTransformStyle"
+      :style="{ ...canvasTransformStyle, cursor: canvasCursor }"
     ></canvas>
   </div>
 </template>
@@ -461,7 +502,6 @@ defineExpose({ resetView });
 <style scoped>
 .pixel-canvas {
   display: block;
-  cursor: pointer;
   image-rendering: pixelated;
   image-rendering: -moz-crisp-edges;
   image-rendering: crisp-edges;
