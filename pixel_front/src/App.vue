@@ -56,7 +56,10 @@ function resetCanvasView() {
 
 <template>
   <div class="app">
-    <h1 class="title">多人在线像素画布</h1>
+    <header>
+      <h1 class="title">A手像素画板 - 多人在线像素艺术协作平台</h1>
+      <p class="subtitle">与其他创作者一起实时协作，创作独特的像素艺术作品</p>
+    </header>
     
     <div class="main-container">
       <!-- 左侧控制面板 -->
@@ -117,7 +120,15 @@ function resetCanvasView() {
 
 .title {
   text-align: center;
+  margin-bottom: 10px;
+}
+
+.subtitle {
+  text-align: center;
+  margin-top: 0;
   margin-bottom: 30px;
+  color: #666;
+  font-size: 1.1em;
 }
 
 .main-container {
