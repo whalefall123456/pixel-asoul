@@ -29,6 +29,9 @@ const dragStartY = ref(0); // 新增：记录拖动开始时的Y坐标
 const dragThreshold = 5; // 拖动阈值，单位为像素
 const isDraggingForPlacement = ref(false); // 新增：用于判断是否为放置像素的拖动
 
+const dragScaleX = ref(1); // 新增：拖拽时的水平比例修正
+const dragScaleY = ref(1); // 新增：拖拽时的垂直比例修正
+
 // 一些便捷尺寸
 const baseCanvasWidth = computed(() => props.width * props.pixelSize);
 const baseCanvasHeight = computed(() => props.height * props.pixelSize);
@@ -143,7 +146,7 @@ function handleWheel(event) {
   const factor = event.deltaY < 0 ? (1 + zoomIntensity) : (1 - zoomIntensity);
 
   let newScale = scale.value * factor;
-  newScale = Math.min(20, Math.max(1, newScale));
+  newScale = Math.min(40, Math.max(1, newScale));
   if (Math.abs(newScale - 1) < 1e-3) newScale = 1;
 
   // 以鼠标为锚点：mx = T'x + newScale * cx，其中 cx = (mx - Tx)/scale
@@ -165,19 +168,43 @@ function handleMouseDown(event) {
   dragStartX.value = event.clientX; // 记录拖动开始位置
   dragStartY.value = event.clientY; // 记录拖动开始位置
   isDraggingForPlacement.value = false; // 重置拖动标记
-  if (canvasRef.value) {
-    // 只在非冷却状态下设置 grabbing cursor
-    if (!isCoolingDown.value) {
-      canvasRef.value.style.cursor = 'grabbing';
-    }
+
+  // === 新增开始：计算拖拽比例 ===
+  if (containerRef.value) {
+    const el = containerRef.value;
+    const rect = el.getBoundingClientRect();
+    
+    // 减去边框影响（与点击逻辑一致）
+    const borderLeft = el.clientLeft || 0;
+    const borderRight = borderLeft; // 假设对称
+    const borderTop = el.clientTop || 0;
+    const borderBottom = borderTop; // 假设对称
+
+    const renderedContentWidth = rect.width - borderLeft - borderRight;
+    const renderedContentHeight = rect.height - borderTop - borderBottom;
+
+    // 计算比例：逻辑尺寸 / 实际渲染尺寸
+    // 例如：逻辑1000 / 渲染500 = 2.0。意味着鼠标动1px，逻辑上要动2px。
+    dragScaleX.value = renderedContentWidth > 0 ? baseCanvasWidth.value / renderedContentWidth : 1;
+    dragScaleY.value = renderedContentHeight > 0 ? baseCanvasHeight.value / renderedContentHeight : 1;
+  }
+  // === 新增结束 ===
+
+  if (canvasRef.value && !isCoolingDown.value) {
+    canvasRef.value.style.cursor = 'grabbing';
   }
 }
 
 function handleMouseMove(event) {
   if (!isDragging.value) return;
 
-  const dx = event.clientX - lastX.value;
-  const dy = event.clientY - lastY.value;
+  // 计算物理位移
+  const rawDx = event.clientX - lastX.value;
+  const rawDy = event.clientY - lastY.value;
+  
+  // === 修改：乘以比例系数，转换为逻辑位移 ===
+  const dx = rawDx * dragScaleX.value;
+  const dy = rawDy * dragScaleY.value;
   
   // 更新位置
   translateX.value += dx;
@@ -227,6 +254,8 @@ function handleCanvasClick(event) {
   const y = Math.floor(canvasY / props.pixelSize);
 
   if (x >= 0 && x < props.width && y >= 0 && y < props.height) {
+    //测试
+    console.log(`点击了像素 (${x}, ${y})`);
     ws.send('pixel_place', { x, y, color: props.selectedColor });
     emit('pixel-placed');
   }
@@ -465,9 +494,32 @@ function resetView() {
 
 function getLocalPosInContainer(event) {
   const el = containerRef.value;
+  if (!el) return { x: 0, y: 0 };
+
   const rect = el.getBoundingClientRect();
-  const x = event.clientX - rect.left - el.clientLeft; // clientLeft/Top = 边框厚度
-  const y = event.clientY - rect.top  - el.clientTop;
+  
+  // 获取边框宽度（clientLeft 通常等于左边框宽度）
+  // 我们假设 CSS 中边框是对称的 (border: 2px solid ...)
+  const borderLeft = el.clientLeft || 0;
+  const borderTop = el.clientTop || 0;
+  const borderRight = borderLeft; // 假设左右边框相等
+  const borderBottom = borderTop; // 假设上下边框相等
+
+  // 1. 计算实际用于显示画布的“内容区域”的渲染宽高
+  // 也就是：总渲染宽 - 左右边框
+  const renderedContentWidth = rect.width - borderLeft - borderRight;
+  const renderedContentHeight = rect.height - borderTop - borderBottom;
+
+  // 2. 计算逻辑尺寸与渲染内容尺寸的比例
+  // 逻辑宽度 (1000) / 渲染出的内容宽度 (例如 800)
+  const scaleX = renderedContentWidth > 0 ? baseCanvasWidth.value / renderedContentWidth : 1;
+  const scaleY = renderedContentHeight > 0 ? baseCanvasHeight.value / renderedContentHeight : 1;
+
+  // 3. 计算坐标
+  // (鼠标屏幕坐标 - 容器屏幕坐标 - 左边框厚度) * 比例
+  const x = (event.clientX - rect.left - borderLeft) * scaleX;
+  const y = (event.clientY - rect.top  - borderTop) * scaleY;
+
   return { x, y };
 }
 
