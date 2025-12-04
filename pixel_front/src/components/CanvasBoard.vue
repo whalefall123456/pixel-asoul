@@ -492,6 +492,7 @@ function resetView() {
   applyBoundaryConstraints();
 }
 
+// 获取鼠标位置
 function getLocalPosInContainer(event) {
   const el = containerRef.value;
   if (!el) return { x: 0, y: 0 };

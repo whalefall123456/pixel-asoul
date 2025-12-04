@@ -13,59 +13,70 @@ import numpy as np
 def color_array_to_png(color_array: List[str], width: int, height: int, output_path: str = None) -> bytes:
     """
     将颜色数组转换为PNG图片格式
-    
+
     Args:
         color_array: 颜色数组，每个元素为十六进制颜色码（如"#FF0000"）
         width: 图片宽度
         height: 图片高度
         output_path: 可选，输出文件路径，如果提供则保存到文件
-        
+
     Returns:
         bytes: PNG图片的字节数据
-        
+
     Raises:
         ValueError: 当颜色数组长度与指定的宽高不匹配时
     """
     # 验证输入参数
     if len(color_array) != width * height:
-        raise ValueError(f"颜色数组长度({len(color_array)})与指定尺寸({width}x{height}={width*height})不匹配")
-    
+        raise ValueError(f"颜色数组长度({len(color_array)})与指定尺寸({width}x{height}={width * height})不匹配")
+
     # 创建一个numpy数组来存储RGB值
     img_array = np.zeros((height, width, 3), dtype=np.uint8)
-    
+
     # 将十六进制颜色转换为RGB值并填充到数组中
     for i, color_hex in enumerate(color_array):
-        # 解析十六进制颜色码
-        if color_hex.startswith('#'):
+        # 处理空字符串或无效颜色值的情况
+        if not color_hex or len(color_hex) == 0:
+            # 使用默认颜色（白色）替代
+            color_hex = "#FFFFFF"
+        elif color_hex.startswith('#'):
             color_hex = color_hex[1:]
-        
+
+        # 确保颜色值长度正确（应该为6个字符）
+        if len(color_hex) != 6:
+            # 使用默认颜色（白色）替代
+            color_hex = "FFFFFF"
+
         # 将十六进制转换为RGB
-        r = int(color_hex[0:2], 16)
-        g = int(color_hex[2:4], 16)
-        b = int(color_hex[4:6], 16)
-        
+        try:
+            r = int(color_hex[0:2], 16)
+            g = int(color_hex[2:4], 16)
+            b = int(color_hex[4:6], 16)
+        except ValueError:
+            # 如果转换失败，使用默认颜色（白色）
+            r, g, b = 255, 255, 255
+
         # 计算在数组中的位置
         y = i // width
         x = i % width
-        
+
         # 填充RGB值
         img_array[y, x] = [r, g, b]
-    
+
     # 创建PIL图像
     img = Image.fromarray(img_array, 'RGB')
-    
+
     # 如果指定了输出路径，则保存到文件
     if output_path:
         img.save(output_path, 'PNG')
-    
+
     # 将图像转换为字节数据
     from io import BytesIO
     img_bytes = BytesIO()
     img.save(img_bytes, format='PNG')
     img_bytes.seek(0)
-    
-    return img_bytes.getvalue()
 
+    return img_bytes.getvalue()
 
 def png_to_color_array(png_path: str = None, png_bytes: bytes = None) -> List[str]:
     """

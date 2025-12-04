@@ -38,12 +38,20 @@ class CanvasStore:
         index = y * CANVAS_WIDTH + x
         color = await self.redis.lindex(self.canvas_key, index)
         return color or "#FFFFFF"
-        
+
     async def set_pixel(self, x: int, y: int, color: str) -> bool:
         """Set pixel color at position (x, y)."""
         if not (0 <= x < CANVAS_WIDTH and 0 <= y < CANVAS_HEIGHT):
             raise ValueError("Coordinates out of bounds")
-            
+
+        # 验证颜色值是否有效
+        if not color or len(color) == 0:
+            # 使用默认颜色替代空值
+            color = "#FFFFFF"
+        elif not color.startswith('#') or len(color) != 7:
+            # 确保颜色值格式正确（以#开头且总长度为7）
+            raise ValueError("Invalid color format")
+
         index = y * CANVAS_WIDTH + x
         result = await self.redis.lset(self.canvas_key, index, color)
         return result
