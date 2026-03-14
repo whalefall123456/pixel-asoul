@@ -10,6 +10,13 @@ const selectedColor = ref('#FF0000');
 const canvasBoard = ref(null);
 const cooldownTimer = ref(null);
 
+// 统计信息
+const stats = ref({
+  onlineCount: 0,        // 当前在线人数
+  totalVisits: 0,        // 累计访问人次
+  totalPixels: 0         // 累计放置像素块数
+});
+
 const cooldownEventBus = {
   listeners: [],
   emit(data) {
@@ -42,6 +49,15 @@ onMounted(() => {
     if (cooldownTimer.value) {
       cooldownTimer.value.startCooldown(data.limit_time);
     }
+  });
+
+  // 监听统计信息更新
+  ws.on('stats', (data) => {
+    stats.value = {
+      onlineCount: data.current_online_users || 0,
+      totalVisits: data.total_visits || 0,
+      totalPixels: data.total_placed_pixels || 0
+    };
   });
 
 })
@@ -85,14 +101,39 @@ function resetCanvasView() {
           <ul>
             <li>在左侧选择颜色</li>
             <li>点击画布放置像素</li>
-            <li>放置频率限制为平均2/s</li>
-            <li>与其他用户实时协作创作</li>
             <li>鼠标滚轮缩放画布</li>
             <li>按住鼠标拖拽移动画布</li>
+            <li>放置频率限制为平均2/s</li>
+            <li>与其他用户实时协作创作</li>
           </ul>
           <p class="mock-mode-notice">
             <strong>提示:</strong> 点击吸管工具可吸取画布上的颜色，部分浏览器可能不支持。
           </p>
+        </div>
+        
+        <!-- 统计信息展示 -->
+        <div class="stats-panel">
+          <h3>数据统计</h3>
+          <div class="stat-item">
+            <span class="stat-label">👥 在线人数:</span>
+            <span class="stat-value">{{ stats.onlineCount }}</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">👁️ 累计访问:</span>
+            <span class="stat-value">{{ stats.totalVisits }}</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">🎨 放置像素:</span>
+            <span class="stat-value">{{ stats.totalPixels }}</span>
+          </div>
+          
+          <!-- 哔哩哔哩视频链接 -->
+          <div class="bili-link">
+            <img src="./assets/bilibili_play.png" alt="Bilibili" class="bili-icon" />
+            <a href="https://www.bilibili.com/video/BV1wscrz3ERL" target="_blank" rel="noopener noreferrer">
+              绘画过程可视化
+            </a>
+          </div>
         </div>
       </div>
     </div>
@@ -201,6 +242,74 @@ function resetCanvasView() {
   padding: 10px;
   margin: 0;
   font-size: 14px;
+}
+
+.stats-panel {
+  background-color: #f5f5f5;
+  padding: 15px;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  text-align: left;
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 20px;
+}
+
+.stats-panel h3 {
+  margin-top: 0;
+  margin-bottom: 15px;
+}
+
+.stat-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 0;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.stat-item:last-child {
+  border-bottom: none;
+}
+
+.stat-label {
+  font-size: 14px;
+  color: #555;
+}
+
+.stat-value {
+  font-size: 16px;
+  font-weight: bold;
+  color: #2c3e50;
+}
+
+.bili-link {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 15px;
+  padding-top: 15px;
+  border-top: 1px solid #e0e0e0;
+}
+
+.bili-icon {
+  width: 64px;
+  height: 64px;
+  object-fit: contain;
+}
+
+.bili-link a {
+  color: #00AEEC;
+  text-decoration: none;
+  font-size: 20px;
+  font-weight: 500;
+  transition: color 0.3s;
+  display: flex;
+  align-items: center;
+}
+
+.bili-link a:hover {
+  color: #0083b0;
 }
 
 .reset-view-btn {

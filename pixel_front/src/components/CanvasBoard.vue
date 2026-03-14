@@ -289,7 +289,6 @@ function drawPixel(x, y, color) {
   );
 }
 
-// 写一个函数，接受一个参数，是一个png格式图片数据，将图片绘制到画布上
 // imageData应该是后端返回的data URL格式: "data:image/png;base64,..."
 function drawPNGImageFromDataURL(imageData, offsetX = 0, offsetY = 0) {
   const startTime = performance.now(); // 记录开始时间
@@ -439,7 +438,7 @@ async function fetchAndDrawUpdate() {
   }
 }
 
-// 添加一个新函数，用于将后端返回的logs数据绘制到画布上
+// 将后端返回的logs数据绘制到画布上
 function drawLogsToCanvas(logs) {
   if (!ctx.value || !logs || !Array.isArray(logs)) return;
   

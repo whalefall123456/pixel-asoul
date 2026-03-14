@@ -25,6 +25,7 @@ pixel_front/*.example
 *.local
 
 #back
+pixel_back/AGENTS.md
 pixel_back/.idea/
 pixel_back/tests/
 pixel_back/.env

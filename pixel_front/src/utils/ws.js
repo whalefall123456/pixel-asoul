@@ -26,13 +26,12 @@ class WSClient {
       try {
         const message = JSON.parse(event.data);
         // 根据后端API调整消息类型映射
-        if (message.type === "initial_canvas") {
-          this.emit('initial_canvas', message.data);
-        } else if (message.type === "pixel_update") {
+        if (message.type === "pixel_update") {
           this.emit('pixel_update', message.data);
         } else if (message.type === "limited") {
           this.emit('limited', message.data);
-        }
+        }else if(message.type === "visit_stats")
+          this.emit('stats', message.data);
       } catch (error) {
         console.error('解析WebSocket消息失败:', error);
       }

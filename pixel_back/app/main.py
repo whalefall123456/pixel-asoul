@@ -8,10 +8,10 @@ from fastapi import FastAPI
 from app.websocket.endpoints import router as websocket_router
 from app.api.snapshots import router as snapshots_router
 from app.config import CANVAS_WIDTH, CANVAS_HEIGHT
-from app.deps import create_redis_pool, initialize_pixel_logs_counter, get_db_session
+from app.deps import create_redis_pool
 import app.deps as deps
 from app.services.canvas_initializer import initialize_canvas_at_startup
-import asyncio
+from app.services.stats_service import StatsService
 
 # Create FastAPI app
 app = FastAPI(
@@ -32,10 +32,8 @@ async def startup_event():
     create_redis_pool()
     print("Redis connection pool created")
     
-    # Initialize pixel logs counter
-    async with get_db_session() as db:
-        await initialize_pixel_logs_counter(db)
-    
+    await StatsService.initialize_startup_counters()
+
     # Initialize canvas
     await initialize_canvas_at_startup()
     print("Canvas initialization completed")

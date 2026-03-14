@@ -1,4 +1,4 @@
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, BackgroundTasks
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from app.redis_store.canvas import CanvasStore
 from app.schemas.events import PixelUpdateEvent
 from app.utils.logger import logger
@@ -8,8 +8,10 @@ import json
 import time
 import asyncio
 from app.services.canvas_service import CanvasService, create_snapshot_background
+from app.services.stats_service import StatsService
+from app.utils.utils import extract_client_ip_from_websocket
 from app.websocket.manager import ConnectionManager, RateLimiter
-from datetime import datetime, timedelta
+from datetime import datetime
 from app.config import MAX_REQUESTS,WINDOW_SIZE_SECONDS,CLEANUP_INTERVAL_MINUTES
 
 # Create connection manager for this module
@@ -25,11 +27,15 @@ async def canvas_websocket(websocket: WebSocket):
     # 初始化Redis连接用于pub/sub
     await manager.init_redis()
     connection_id = await manager.connect(websocket)
-    
+    client_ip = extract_client_ip_from_websocket(websocket)
     # Get Redis connection from pool
     redis = aioredis.Redis(connection_pool=deps.redis_pool)
     canvas_store = CanvasStore(redis)
-    
+    stats_service = StatsService(redis)
+
+    # Track connection-based counters in Redis
+    await manager.broadcast(json.dumps({"type": "visit_stats", "data": await stats_service.handle_connect(client_ip)}))
+
     try:
         while True:
             data = await websocket.receive_text()
@@ -60,6 +66,7 @@ async def canvas_websocket(websocket: WebSocket):
                 async with deps.get_db_session() as db_session:
                     canvas_service = CanvasService(canvas_store, db_session)
                     log_id = await canvas_service.process_pixel_update(event)
+                    stats_data = await stats_service.handle_pixel_placed(1)
                     await deps.increment_pixel_logs_counter()
                     # 检查是否需要创建快照
                     if await deps.async_should_create_snapshot():
@@ -70,15 +77,17 @@ async def canvas_websocket(websocket: WebSocket):
                 # 发送更新并记录执行时间
                 start_time = time.time()
                 await manager.broadcast(json.dumps({"type": "pixel_update", "data": message["data"]}))
+                await manager.broadcast(json.dumps({"type": "visit_stats", "data": stats_data}))
                 elapsed_time = time.time() - start_time
                 logger.info(f"Broadcast message took {elapsed_time:.4f} seconds")
                 
     except WebSocketDisconnect:
-        manager.disconnect(connection_id=connection_id)
         logger.info("Client disconnected")
     except Exception as e:
         logger.error(f"WebSocket error: {e}")
-        manager.disconnect(connection_id=connection_id)
     finally:
+        # Keep in-memory connection state and online counter in sync.
+        manager.disconnect(connection_id=connection_id)
+        await manager.broadcast(json.dumps({"type": "visit_stats", "data": await stats_service.handle_disconnect()}))
         # Close Redis connection (returns it to the pool)
         await redis.close()

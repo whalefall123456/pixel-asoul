@@ -5,9 +5,14 @@
 @Description:
 """
 
+# app/utils/utils.py
+from __future__ import annotations
 from typing import List
 from PIL import Image
 import numpy as np
+
+from ipaddress import ip_address
+from typing import Mapping, Optional
 
 
 def color_array_to_png(color_array: List[str], width: int, height: int, output_path: str = None) -> bytes:
@@ -128,3 +133,79 @@ def png_to_color_array(png_path: str = None, png_bytes: bytes = None) -> List[st
             color_array.append(color_hex)
     
     return color_array
+
+
+
+
+def _clean_ip_candidate(value: Optional[str]) -> Optional[str]:
+    """Normalize a raw IP candidate and return valid IP or None."""
+    if not value:
+        return None
+
+    s = value.strip()
+    if not s or s.lower() == "unknown":
+        return None
+
+    # Handle common format: "client, proxy1, proxy2"
+    if "," in s:
+        s = s.split(",")[0].strip()
+
+    # Handle bracketed IPv6: "[2001:db8::1]"
+    if s.startswith("[") and s.endswith("]"):
+        s = s[1:-1].strip()
+
+    # Try direct parse first
+    try:
+        ip_address(s)
+        return s
+    except ValueError:
+        pass
+
+    # Handle possible "ip:port" (mostly IPv4 from some proxies)
+    if ":" in s and s.count(":") == 1:
+        host, _, _port = s.partition(":")
+        host = host.strip()
+        try:
+            ip_address(host)
+            return host
+        except ValueError:
+            return None
+
+    return None
+
+
+def extract_client_ip(
+    headers: Mapping[str, str],
+    client_host: Optional[str] = None,
+) -> Optional[str]:
+    """
+    Extract client IP behind reverse proxy.
+
+    Priority:
+    1) X-Forwarded-For (first hop)
+    2) X-Real-IP
+    3) direct client_host from socket
+    """
+    xff = headers.get("x-forwarded-for")
+    ip = _clean_ip_candidate(xff)
+    if ip:
+        return ip
+
+    xri = headers.get("x-real-ip")
+    ip = _clean_ip_candidate(xri)
+    if ip:
+        return ip
+
+    return _clean_ip_candidate(client_host)
+
+
+def extract_client_ip_from_websocket(websocket) -> Optional[str]:
+    """FastAPI/Starlette WebSocket helper."""
+    client_host = websocket.client.host if websocket.client else None
+    return extract_client_ip(websocket.headers, client_host)
+
+
+def extract_client_ip_from_request(request) -> Optional[str]:
+    """FastAPI/Starlette Request helper."""
+    client_host = request.client.host if request.client else None
+    return extract_client_ip(request.headers, client_host)
