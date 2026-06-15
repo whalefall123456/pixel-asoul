@@ -1,14 +1,24 @@
 <script setup>
-import { ref, onMounted, provide } from 'vue';
+import { ref, onMounted, onBeforeUnmount, provide } from 'vue';
 import CanvasBoard from './components/CanvasBoard.vue';
 import ColorPicker from './components/ColorPicker.vue';
 import CooldownTimer from './components/CooldownTimer.vue';
+import MobileToolbar from './components/MobileToolbar.vue';
+import FloatingToolbar from './components/FloatingToolbar.vue';
 import ws from './utils/ws.js';
 
 // 状态管理
 const selectedColor = ref('#FF0000');
 const canvasBoard = ref(null);
 const cooldownTimer = ref(null);
+
+// 移动端状态
+const isMobile = ref(false);
+const isColorPickerOpen = ref(false);
+const isCrosshairMode = ref(true);
+const isInfoOpen = ref(false);
+const mobileCooldown = ref(0);
+let mobileCooldownTimer = null;
 
 // 统计信息
 const stats = ref({
@@ -44,17 +54,48 @@ const cooldownEventBus = {
 provide('cooldownEventBus', cooldownEventBus)
 provide('showToast', showToast)
 
+function checkMobile() {
+  const mq = window.matchMedia('(max-width: 639px), (hover: none) and (pointer: coarse)');
+  isMobile.value = mq.matches;
+}
+
+function startMobileCooldown(seconds) {
+  stopMobileCooldown();
+  mobileCooldown.value = Math.max(0, Math.floor(seconds));
+  if (mobileCooldown.value <= 0) return;
+
+  mobileCooldownTimer = setInterval(() => {
+    mobileCooldown.value--;
+    if (mobileCooldown.value <= 0) {
+      stopMobileCooldown();
+      cooldownEventBus.emit({ type: 'cooldown-end' });
+    }
+  }, 1000);
+}
+
+function stopMobileCooldown() {
+  if (mobileCooldownTimer) {
+    clearInterval(mobileCooldownTimer);
+    mobileCooldownTimer = null;
+  }
+}
+
 // 连接到WebSocket服务器
 onMounted(() => {
-  const wsUrl = window.location.protocol === 'https:' 
-    ? `wss://${window.location.host}/ws/canvas` 
+  checkMobile();
+  window.matchMedia('(max-width: 639px), (hover: none) and (pointer: coarse)').addEventListener('change', checkMobile);
+
+  const wsUrl = window.location.protocol === 'https:'
+    ? `wss://${window.location.host}/ws/canvas`
     : `ws://${window.location.host}/ws/canvas`;
   ws.connect(wsUrl);
 
   // 监听限制消息
   ws.on('limited', (data) => {
     showToast(data.error_message || '操作过于频繁，请稍后再试', 'warning');
-    if (cooldownTimer.value) {
+    if (isMobile.value) {
+      startMobileCooldown(data.limit_time);
+    } else if (cooldownTimer.value) {
       cooldownTimer.value.startCooldown(data.limit_time);
     }
   });
@@ -69,10 +110,46 @@ onMounted(() => {
   });
 })
 
+onBeforeUnmount(() => {
+  stopMobileCooldown();
+  window.matchMedia('(max-width: 639px), (hover: none) and (pointer: coarse)').removeEventListener('change', checkMobile);
+});
+
 // 重置画布视图
 function resetCanvasView() {
   if (canvasBoard.value) {
     canvasBoard.value.resetView();
+  }
+}
+
+function zoomIn() {
+  canvasBoard.value?.zoomIn();
+}
+
+function zoomOut() {
+  canvasBoard.value?.zoomOut();
+}
+
+function toggleCrosshair() {
+  isCrosshairMode.value = !isCrosshairMode.value;
+}
+
+function openColorPicker() {
+  isColorPickerOpen.value = true;
+}
+
+function closeColorPicker() {
+  isColorPickerOpen.value = false;
+}
+
+function toggleInfo() {
+  isInfoOpen.value = !isInfoOpen.value;
+}
+
+function handlePlacePixel() {
+  const ok = canvasBoard.value?.placeAtCrosshair();
+  if (!ok) {
+    showToast('请将准星对准画布内再放置', 'warning');
   }
 }
 </script>
@@ -95,11 +172,11 @@ function resetCanvasView() {
     </div>
 
     <!-- 顶部导航 -->
-    <header class="app-header">
+    <header class="app-header" :class="{ mobile: isMobile }">
       <div class="header-left">
         <div class="logo">
           <span class="logo-icon">🎨</span>
-          <div class="logo-text">
+          <div v-if="!isMobile" class="logo-text">
             <h1 class="title">A手像素画板</h1>
             <p class="subtitle">多人在线像素艺术协作平台</p>
           </div>
@@ -126,8 +203,8 @@ function resetCanvasView() {
       </div>
     </header>
 
-    <!-- 主体内容 -->
-    <div class="main-container">
+    <!-- 桌面端布局 -->
+    <div v-if="!isMobile" class="main-container">
       <!-- 左侧工具面板 -->
       <aside class="panel panel-left">
         <ColorPicker v-model="selectedColor" />
@@ -143,6 +220,7 @@ function resetCanvasView() {
         <CanvasBoard
           ref="canvasBoard"
           :selected-color="selectedColor"
+          :is-mobile="false"
           @pixel-placed="() => {}"
         />
       </main>
@@ -174,6 +252,83 @@ function resetCanvasView() {
         </div>
       </aside>
     </div>
+
+    <!-- 移动端布局 -->
+    <template v-else>
+      <div class="mobile-layout">
+        <main class="mobile-canvas-area">
+          <CanvasBoard
+            ref="canvasBoard"
+            :selected-color="selectedColor"
+            :is-mobile="true"
+            :is-crosshair-mode="isCrosshairMode"
+            @pixel-placed="() => {}"
+          />
+        </main>
+      </div>
+
+      <FloatingToolbar
+        @zoom-in="zoomIn"
+        @zoom-out="zoomOut"
+        @reset-view="resetCanvasView"
+        @toggle-info="toggleInfo"
+      />
+
+      <MobileToolbar
+        :selected-color="selectedColor"
+        :cooldown-seconds="mobileCooldown"
+        :is-crosshair-mode="isCrosshairMode"
+        @open-color-picker="openColorPicker"
+        @place-pixel="handlePlacePixel"
+        @toggle-crosshair="toggleCrosshair"
+      />
+
+      <!-- 移动端颜色选择抽屉 -->
+      <Transition name="drawer">
+        <div v-if="isColorPickerOpen" class="color-drawer" @click.self="closeColorPicker">
+          <div class="drawer-content">
+            <div class="drawer-header">
+              <h3>选择颜色</h3>
+              <button class="close-btn" @click="closeColorPicker">✕</button>
+            </div>
+            <ColorPicker v-model="selectedColor" />
+          </div>
+        </div>
+      </Transition>
+
+      <!-- 移动端使用说明抽屉 -->
+      <Transition name="drawer">
+        <div v-if="isInfoOpen" class="info-drawer" @click.self="toggleInfo">
+          <div class="drawer-content">
+            <div class="drawer-header">
+              <h3>使用说明</h3>
+              <button class="close-btn" @click="toggleInfo">✕</button>
+            </div>
+            <div class="card">
+              <ul class="guide-list">
+                <li><span class="guide-key">选色</span> 点击底部调色板</li>
+                <li><span class="guide-key">绘制</span> 对准准星后点击放置</li>
+                <li><span class="guide-key">缩放</span> 双指捏合或右侧按钮</li>
+                <li><span class="guide-key">移动</span> 单指拖拽画布</li>
+                <li><span class="guide-key">限速</span> 放置频率平均 2/s</li>
+                <li><span class="guide-key">协作</span> 与其他用户实时创作</li>
+              </ul>
+              <div class="tip-box">
+                建议开启准星模式以精确放置像素。
+              </div>
+            </div>
+            <div class="card bili-card">
+              <div class="bili-link">
+                <img src="./assets/bilibili_play.png" alt="Bilibili" class="bili-icon" />
+                <a href="https://www.bilibili.com/video/BV1wscrz3ERL" target="_blank" rel="noopener noreferrer">
+                  绘画过程可视化
+                </a>
+              </div>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </template>
   </div>
 </template>
 
@@ -258,6 +413,16 @@ function resetCanvasView() {
   z-index: 100;
 }
 
+.app-header.mobile {
+  padding: 8px 12px;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(10px);
+}
+
 .header-left {
   display: flex;
   align-items: center;
@@ -302,6 +467,10 @@ function resetCanvasView() {
   gap: 12px;
 }
 
+.app-header.mobile .stats-bar {
+  gap: 8px;
+}
+
 .stat-chip {
   display: flex;
   align-items: center;
@@ -310,6 +479,11 @@ function resetCanvasView() {
   background: var(--bg-body);
   border-radius: 20px;
   font-size: 13px;
+}
+
+.app-header.mobile .stat-chip {
+  padding: 4px 8px;
+  font-size: 12px;
 }
 
 .stat-dot {
@@ -485,6 +659,95 @@ function resetCanvasView() {
 
 .bili-link a:hover {
   color: #0083b0;
+}
+
+/* ===== 移动端布局 ===== */
+.mobile-layout {
+  position: fixed;
+  top: 100px;
+  left: 0;
+  right: 0;
+  bottom: 76px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  overflow: hidden;
+  background: var(--bg-body);
+}
+
+.mobile-canvas-area {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  overflow: hidden;
+}
+
+/* ===== 抽屉 ===== */
+.color-drawer,
+.info-drawer {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.4);
+  z-index: 300;
+  display: flex;
+  align-items: flex-end;
+}
+
+.drawer-content {
+  width: 100%;
+  max-height: 80vh;
+  overflow-y: auto;
+  background: var(--bg-body);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  padding: 16px;
+  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.15);
+}
+
+.drawer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.drawer-header h3 {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.close-btn {
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: var(--bg-card);
+  border-radius: 50%;
+  font-size: 16px;
+  cursor: pointer;
+}
+
+.drawer-enter-active,
+.drawer-leave-active {
+  transition: opacity 0.25s ease;
+}
+
+.drawer-enter-from,
+.drawer-leave-to {
+  opacity: 0;
+}
+
+.drawer-enter-active .drawer-content,
+.drawer-leave-active .drawer-content {
+  transition: transform 0.25s ease;
+}
+
+.drawer-enter-from .drawer-content,
+.drawer-leave-to .drawer-content {
+  transform: translateY(100%);
 }
 
 /* ===== 响应式 ===== */

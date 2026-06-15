@@ -8,6 +8,8 @@ const props = defineProps({
   height: { type: Number, default: 1000 },
   pixelSize: { type: Number, default: 1 },
   selectedColor: { type: String, required: true },
+  isMobile: { type: Boolean, default: false },
+  isCrosshairMode: { type: Boolean, default: false },
 });
 
 const cooldownEventBus = inject('cooldownEventBus')
@@ -32,6 +34,18 @@ const isDraggingForPlacement = ref(false); // 新增：用于判断是否为放�
 const dragScaleX = ref(1); // 新增：拖拽时的水平比例修正
 const dragScaleY = ref(1); // 新增：拖拽时的垂直比例修正
 
+// 触控状态
+const touchStartDist = ref(0);
+const touchStartScale = ref(1);
+const touchMidpoint = ref({ x: 0, y: 0 });
+const isTouchDragging = ref(false);
+const touchStartPos = ref({ x: 0, y: 0 });
+const lastTapTime = ref(0);
+const hasMoved = ref(false);
+
+// 移动端正处于拖拽/缩放时不显示悬停高亮
+const isInteracting = ref(false);
+
 // 悬停像素指示
 const hoverPixelX = ref(-1);
 const hoverPixelY = ref(-1);
@@ -40,20 +54,31 @@ const hoverPixelY = ref(-1);
 const baseCanvasWidth = computed(() => props.width * props.pixelSize);
 const baseCanvasHeight = computed(() => props.height * props.pixelSize);
 
-// 容器样式：容器大小 = 基础画布大小（最小显示尺寸）
-// 注意：border 宽度必须保持 2px，与 getLocalPosInContainer 中的 clientLeft 计算一致
-const canvasContainerStyle = computed(() => ({
-  width: `${baseCanvasWidth.value}px`,
-  height: `${baseCanvasHeight.value}px`,
-  backgroundColor: '#fff',
-  border: '2px solid var(--border, #e2e8f0)',
-  borderRadius: 'var(--radius, 10px)',
-  boxShadow: '0 4px 12px rgba(0,0,0,0.08), 0 1px 3px rgba(0,0,0,0.06)',
-  display: 'inline-block',
-  flexShrink: 0,
-  position: 'relative',
-  overflow: 'hidden'
-}));
+// 容器样式：桌面端固定为画布逻辑尺寸；移动端填满视口以便拖动
+const canvasContainerStyle = computed(() => {
+  if (props.isMobile) {
+    return {
+      width: '100%',
+      height: '100%',
+      backgroundColor: '#fff',
+      position: 'relative',
+      overflow: 'hidden',
+      touchAction: 'none',
+    };
+  }
+  return {
+    width: `${baseCanvasWidth.value}px`,
+    height: `${baseCanvasHeight.value}px`,
+    backgroundColor: '#fff',
+    border: '2px solid var(--border, #e2e8f0)',
+    borderRadius: 'var(--radius, 10px)',
+    boxShadow: '0 4px 12px rgba(0,0,0,0.08), 0 1px 3px rgba(0,0,0,0.06)',
+    display: 'inline-block',
+    flexShrink: 0,
+    position: 'relative',
+    overflow: 'hidden'
+  };
+});
 
 // 注意：CSS transform 从右到左应用；我们使用 translate(...) scale(...)
 // => 实际效果是"先 scale，再 translate（单位为像素）"
@@ -90,9 +115,13 @@ onMounted(async () => {
   canvas.addEventListener('mouseup', handleMouseUp);
   canvas.addEventListener('mouseleave', handleMouseLeave);
 
+  // 触控事件（移动端）
+  canvas.addEventListener('touchstart', handleTouchStart, { passive: false });
+  canvas.addEventListener('touchmove', handleTouchMove, { passive: false });
+  canvas.addEventListener('touchend', handleTouchEnd, { passive: false });
+
   // WebSocket
   ws.on('pixel_update', handlePixelUpdate);
-  ws.on('initial_canvas', drawFullCanvas);
 
   ws.on('limited', () => {
     isCoolingDown.value = true;
@@ -122,9 +151,11 @@ onBeforeUnmount(() => {
     canvas.removeEventListener('mousemove', handleMouseMove);
     canvas.removeEventListener('mouseup', handleMouseUp);
     canvas.removeEventListener('mouseleave', handleMouseLeave);
+    canvas.removeEventListener('touchstart', handleTouchStart);
+    canvas.removeEventListener('touchmove', handleTouchMove);
+    canvas.removeEventListener('touchend', handleTouchEnd);
   }
   ws.off('pixel_update', handlePixelUpdate);
-  ws.off('initial_canvas', drawFullCanvas);
   cooldownEventBus.off(handleCooldownEvent)
 });
 
@@ -147,7 +178,7 @@ function handleWheel(event) {
 
   const { x: mx, y: my } = getLocalPosInContainer(event);
 
-  const zoomIntensity = 0.1;
+  const zoomIntensity = 0.5;
   const factor = event.deltaY < 0 ? (1 + zoomIntensity) : (1 - zoomIntensity);
 
   let newScale = scale.value * factor;
@@ -174,11 +205,11 @@ function handleMouseDown(event) {
   dragStartY.value = event.clientY; // 记录拖动开始位置
   isDraggingForPlacement.value = false; // 重置拖动标记
 
-  // === 新增开始：计算拖拽比例 ===
-  if (containerRef.value) {
+  // === 新增开始：计算拖拽比例（仅桌面端使用）===
+  if (!props.isMobile && containerRef.value) {
     const el = containerRef.value;
     const rect = el.getBoundingClientRect();
-    
+
     // 减去边框影响（与点击逻辑一致）
     const borderLeft = el.clientLeft || 0;
     const borderRight = borderLeft; // 假设对称
@@ -209,14 +240,15 @@ function handleMouseMove(event) {
   // 计算物理位移
   const rawDx = event.clientX - lastX.value;
   const rawDy = event.clientY - lastY.value;
-  
-  // === 修改：乘以比例系数，转换为逻辑位移 ===
-  const dx = rawDx * dragScaleX.value;
-  const dy = rawDy * dragScaleY.value;
-  
-  // 更新位置
-  translateX.value += dx;
-  translateY.value += dy;
+
+  // 桌面端考虑容器与画布逻辑尺寸的比例；移动端容器坐标即屏幕坐标
+  if (props.isMobile) {
+    translateX.value += rawDx;
+    translateY.value += rawDy;
+  } else {
+    translateX.value += rawDx * dragScaleX.value;
+    translateY.value += rawDy * dragScaleY.value;
+  }
 
   lastX.value = event.clientX;
   lastY.value = event.clientY;
@@ -259,12 +291,44 @@ function updateHoverPixel(event) {
 
 // 悬停高亮样式
 const highlightStyle = computed(() => {
-  if (hoverPixelX.value < 0 || hoverPixelY.value < 0 || isCoolingDown.value) return null;
+  if (hoverPixelX.value < 0 || hoverPixelY.value < 0 || isCoolingDown.value || isInteracting.value) return null;
   const ps = props.pixelSize;
   const s = scale.value;
   const tx = translateX.value + hoverPixelX.value * ps * s;
   const ty = translateY.value + hoverPixelY.value * ps * s;
   const size = ps * s;
+  return {
+    transform: `translate(${tx}px, ${ty}px)`,
+    width: `${size}px`,
+    height: `${size}px`,
+  };
+});
+
+// 中央准星（移动端）
+const crosshairPixel = computed(() => {
+  if (!props.isMobile || !props.isCrosshairMode || !containerRef.value) return null;
+  const rect = containerRef.value.getBoundingClientRect();
+  const centerX = rect.width / 2;
+  const centerY = rect.height / 2;
+  const canvasX = (centerX - translateX.value) / scale.value;
+  const canvasY = (centerY - translateY.value) / scale.value;
+  const x = Math.floor(canvasX / props.pixelSize);
+  const y = Math.floor(canvasY / props.pixelSize);
+
+  if (x >= 0 && x < props.width && y >= 0 && y < props.height) {
+    return { x, y };
+  }
+  return null;
+});
+
+const crosshairStyle = computed(() => {
+  const pos = crosshairPixel.value;
+  if (!pos) return null;
+  const ps = props.pixelSize;
+  const s = scale.value;
+  const size = Math.max(ps * s, 12); // 最小 12px，保证可见
+  const tx = translateX.value + pos.x * ps * s + (ps * s - size) / 2;
+  const ty = translateY.value + pos.y * ps * s + (ps * s - size) / 2;
   return {
     transform: `translate(${tx}px, ${ty}px)`,
     width: `${size}px`,
@@ -278,33 +342,188 @@ function handleMouseLeave() {
   hoverPixelY.value = -1;
 }
 
+// ============ 触控操作 ============
+function getTouchDistance(touches) {
+  const dx = touches[0].clientX - touches[1].clientX;
+  const dy = touches[0].clientY - touches[1].clientY;
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
+function getTouchMidpoint(touches) {
+  return {
+    x: (touches[0].clientX + touches[1].clientX) / 2,
+    y: (touches[0].clientY + touches[1].clientY) / 2,
+  };
+}
+
+function getLocalPosFromTouch(touch) {
+  return getLocalPosInContainer({ clientX: touch.clientX, clientY: touch.clientY });
+}
+
+function handleTouchStart(event) {
+  if (event.touches.length === 1) {
+    const touch = event.touches[0];
+    isTouchDragging.value = true;
+    hasMoved.value = false;
+    touchStartPos.value = { x: touch.clientX, y: touch.clientY };
+    lastX.value = touch.clientX;
+    lastY.value = touch.clientY;
+    isInteracting.value = true;
+  } else if (event.touches.length === 2) {
+    isTouchDragging.value = false;
+    touchStartDist.value = getTouchDistance(event.touches);
+    touchStartScale.value = scale.value;
+    touchMidpoint.value = getTouchMidpoint(event.touches);
+    isInteracting.value = true;
+  }
+}
+
+function handleTouchMove(event) {
+  event.preventDefault();
+
+  if (event.touches.length === 1 && isTouchDragging.value) {
+    const touch = event.touches[0];
+    const dx = touch.clientX - lastX.value;
+    const dy = touch.clientY - lastY.value;
+
+    translateX.value += dx;
+    translateY.value += dy;
+
+    lastX.value = touch.clientX;
+    lastY.value = touch.clientY;
+
+    if (Math.abs(touch.clientX - touchStartPos.value.x) > dragThreshold ||
+        Math.abs(touch.clientY - touchStartPos.value.y) > dragThreshold) {
+      hasMoved.value = true;
+    }
+
+    applyBoundaryConstraints();
+  } else if (event.touches.length === 2) {
+    const newDist = getTouchDistance(event.touches);
+    if (touchStartDist.value > 0) {
+      let newScale = touchStartScale.value * (newDist / touchStartDist.value);
+      newScale = Math.min(40, Math.max(1, newScale));
+
+      // 以双指中点为锚点缩放
+      const localMid = getLocalPosInContainer({
+        clientX: touchMidpoint.value.x,
+        clientY: touchMidpoint.value.y,
+      });
+      const cx = (localMid.x - translateX.value) / scale.value;
+      const cy = (localMid.y - translateY.value) / scale.value;
+
+      scale.value = newScale;
+      translateX.value = localMid.x - scale.value * cx;
+      translateY.value = localMid.y - scale.value * cy;
+      applyBoundaryConstraints();
+    }
+  }
+}
+
+function handleTouchEnd(event) {
+  if (event.touches.length === 0) {
+    // 所有手指离开
+    if (isTouchDragging.value && !hasMoved.value && props.isMobile && !props.isCrosshairMode) {
+      // 在移动端非准星模式下，轻点画布直接放置
+      const touch = event.changedTouches[0];
+      placeAtPoint(touch.clientX, touch.clientY);
+    }
+    isTouchDragging.value = false;
+    isInteracting.value = false;
+  } else if (event.touches.length === 1) {
+    // 从双指变单指，继续拖拽
+    isTouchDragging.value = true;
+    hasMoved.value = true;
+    const touch = event.touches[0];
+    lastX.value = touch.clientX;
+    lastY.value = touch.clientY;
+    touchStartPos.value = { x: touch.clientX, y: touch.clientY };
+  }
+}
+
+// ============ 像素放置 ============
+function placeAtPoint(clientX, clientY) {
+  if (isCoolingDown.value) return;
+  if (!containerRef.value) return;
+
+  const { x: mx, y: my } = getLocalPosInContainer({ clientX, clientY });
+  const canvasX = (mx - translateX.value) / scale.value;
+  const canvasY = (my - translateY.value) / scale.value;
+  const x = Math.floor(canvasX / props.pixelSize);
+  const y = Math.floor(canvasY / props.pixelSize);
+
+  if (x >= 0 && x < props.width && y >= 0 && y < props.height) {
+    ws.send('pixel_place', { x, y, color: props.selectedColor });
+    emit('pixel-placed');
+  }
+}
+
+function getCrosshairPixel() {
+  if (!containerRef.value) return null;
+  const rect = containerRef.value.getBoundingClientRect();
+  const centerX = rect.width / 2;
+  const centerY = rect.height / 2;
+  const canvasX = (centerX - translateX.value) / scale.value;
+  const canvasY = (centerY - translateY.value) / scale.value;
+  const x = Math.floor(canvasX / props.pixelSize);
+  const y = Math.floor(canvasY / props.pixelSize);
+
+  if (x >= 0 && x < props.width && y >= 0 && y < props.height) {
+    return { x, y };
+  }
+  return null;
+}
+
+function placeAtCrosshair() {
+  if (isCoolingDown.value) return false;
+  const pos = getCrosshairPixel();
+  if (!pos) return false;
+  ws.send('pixel_place', { x: pos.x, y: pos.y, color: props.selectedColor });
+  emit('pixel-placed');
+  return true;
+}
+
+function zoomIn() {
+  zoomBy(2);
+}
+
+function zoomOut() {
+  zoomBy(0.5);
+}
+
+function zoomBy(factor) {
+  if (!containerRef.value) return;
+  const rect = containerRef.value.getBoundingClientRect();
+  const centerX = rect.width / 2;
+  const centerY = rect.height / 2;
+  const localCenter = { x: centerX, y: centerY };
+
+  let newScale = scale.value * factor;
+  newScale = Math.min(40, Math.max(1, newScale));
+
+  const cx = (localCenter.x - translateX.value) / scale.value;
+  const cy = (localCenter.y - translateY.value) / scale.value;
+
+  scale.value = newScale;
+  translateX.value = localCenter.x - scale.value * cx;
+  translateY.value = localCenter.y - scale.value * cy;
+  applyBoundaryConstraints();
+}
+
 function handleCanvasClick(event) {
+  // 移动端由 touch 事件或底部"放置"按钮处理，不响应鼠标点击
+  if (props.isMobile) return;
+
   // 如果是拖动浏览，则不执行像素放置
   if (isDraggingForPlacement.value) {
     isDraggingForPlacement.value = false; // 重置标记
     return;
   }
-  //如果在冷却中，则不执行像素放置
+
+  // 如果在冷却中，则不执行像素放置
   if (isCoolingDown.value) return;
 
-  if (!canvasRef.value) return;
-
-  // 用"容器内容区"的局部坐标（不受 transform 影响，也不包含边框）
-  const { x: mx, y: my } = getLocalPosInContainer(event);
-
-  // 反解到画布像素坐标系：container = translate + scale * canvas
-  const canvasX = (mx - translateX.value) / scale.value;
-  const canvasY = (my - translateY.value) / scale.value;
-
-  const x = Math.floor(canvasX / props.pixelSize);
-  const y = Math.floor(canvasY / props.pixelSize);
-
-  if (x >= 0 && x < props.width && y >= 0 && y < props.height) {
-    //测试
-    console.log(`点击了像素 (${x}, ${y})`);
-    ws.send('pixel_place', { x, y, color: props.selectedColor });
-    emit('pixel-placed');
-  }
+  placeAtPoint(event.clientX, event.clientY);
 }
 
 // ============ 像素绘制 ============
@@ -460,13 +679,15 @@ function drawLogsToCanvas(logs) {
 }
 
 // ============ 边界约束（像素空间） ============
-// 规则：不留空白。令基准宽高为 Cw, Ch；缩放后为 Sw, Sh；
-// translateX ∈ [Cw - Sw, 0]，translateY ∈ [Ch - Sh, 0]；若 Sw<=Cw 则 translateX=0（最小填满容器）
+// 规则：不留空白。桌面端容器大小等于画布基准大小；移动端容器为视口大小。
+// translateX ∈ [Cw - Sw, 0]，translateY ∈ [Ch - Sh, 0]
 function applyBoundaryConstraints() {
-  const Cw = baseCanvasWidth.value;
-  const Ch = baseCanvasHeight.value;
-  const Sw = Cw * scale.value;
-  const Sh = Ch * scale.value;
+  const el = containerRef.value;
+  // 移动端以容器可见尺寸为边界；桌面端以画布基准尺寸为边界
+  const Cw = el && props.isMobile ? el.clientWidth : baseCanvasWidth.value;
+  const Ch = el && props.isMobile ? el.clientHeight : baseCanvasHeight.value;
+  const Sw = baseCanvasWidth.value * scale.value;
+  const Sh = baseCanvasHeight.value * scale.value;
 
   const minTx = Math.min(0, Cw - Sw);
   const maxTx = 0;
@@ -491,28 +712,27 @@ function getLocalPosInContainer(event) {
   if (!el) return { x: 0, y: 0 };
 
   const rect = el.getBoundingClientRect();
-  
+
   // 获取边框宽度（clientLeft 通常等于左边框宽度）
-  // 我们假设 CSS 中边框是对称的 (border: 2px solid ...)
   const borderLeft = el.clientLeft || 0;
   const borderTop = el.clientTop || 0;
-  const borderRight = borderLeft; // 假设左右边框相等
-  const borderBottom = borderTop; // 假设上下边框相等
 
-  // 1. 计算实际用于显示画布的“内容区域”的渲染宽高
-  // 也就是：总渲染宽 - 左右边框
-  const renderedContentWidth = rect.width - borderLeft - borderRight;
-  const renderedContentHeight = rect.height - borderTop - borderBottom;
+  // 计算在容器内容区中的坐标
+  let x = event.clientX - rect.left - borderLeft;
+  let y = event.clientY - rect.top - borderTop;
 
-  // 2. 计算逻辑尺寸与渲染内容尺寸的比例
-  // 逻辑宽度 (1000) / 渲染出的内容宽度 (例如 800)
-  const scaleX = renderedContentWidth > 0 ? baseCanvasWidth.value / renderedContentWidth : 1;
-  const scaleY = renderedContentHeight > 0 ? baseCanvasHeight.value / renderedContentHeight : 1;
-
-  // 3. 计算坐标
-  // (鼠标屏幕坐标 - 容器屏幕坐标 - 左边框厚度) * 比例
-  const x = (event.clientX - rect.left - borderLeft) * scaleX;
-  const y = (event.clientY - rect.top  - borderTop) * scaleY;
+  if (!props.isMobile) {
+    // 桌面端：容器尺寸与画布逻辑尺寸一致，此比例为 1
+    // 保留原有逻辑以兼容可能的 CSS 缩放场景
+    const borderRight = borderLeft;
+    const borderBottom = borderTop;
+    const renderedContentWidth = rect.width - borderLeft - borderRight;
+    const renderedContentHeight = rect.height - borderTop - borderBottom;
+    const scaleX = renderedContentWidth > 0 ? baseCanvasWidth.value / renderedContentWidth : 1;
+    const scaleY = renderedContentHeight > 0 ? baseCanvasHeight.value / renderedContentHeight : 1;
+    x *= scaleX;
+    y *= scaleY;
+  }
 
   return { x, y };
 }
@@ -530,23 +750,41 @@ function handleCooldownEvent(event) {
 }
 
 // 暴露方法
-defineExpose({ resetView });
+defineExpose({
+  resetView,
+  zoomIn,
+  zoomOut,
+  placeAtCrosshair,
+  getCrosshairPixel,
+});
 </script>
 
 
 <template>
-  <div :style="canvasContainerStyle" ref="containerRef">
-    <canvas 
+  <div
+    :style="canvasContainerStyle"
+    ref="containerRef"
+    class="canvas-container"
+  >
+    <canvas
       ref="canvasRef"
       class="pixel-canvas"
       :style="{ ...canvasTransformStyle, cursor: canvasCursor }"
     ></canvas>
-    <div 
+    <div
       v-if="highlightStyle"
       class="pixel-highlight"
       :style="highlightStyle"
     ></div>
-    <div v-if="hoverPixelX >= 0 && hoverPixelY >= 0" class="coord-badge">
+    <div
+      v-if="crosshairStyle"
+      class="crosshair"
+      :style="crosshairStyle"
+    >
+      <div class="crosshair-h"></div>
+      <div class="crosshair-v"></div>
+    </div>
+    <div v-if="hoverPixelX >= 0 && hoverPixelY >= 0 && !isInteracting" class="coord-badge">
       ({{ hoverPixelX }}, {{ hoverPixelY }})
     </div>
   </div>
@@ -572,17 +810,34 @@ defineExpose({ resetView });
   z-index: 1;
 }
 
-.coord-badge {
+.crosshair {
   position: absolute;
-  bottom: 8px;
-  right: 8px;
-  padding: 3px 8px;
-  background: rgba(30, 41, 59, 0.8);
-  color: #fff;
-  font-size: 12px;
-  font-family: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
-  border-radius: 4px;
+  top: 0;
+  left: 0;
   pointer-events: none;
-  z-index: 10;
+  z-index: 5;
+}
+
+.crosshair-h,
+.crosshair-v {
+  position: absolute;
+  background: rgba(239, 68, 68, 0.9);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.8);
+}
+
+.crosshair-h {
+  top: 50%;
+  left: 0;
+  width: 100%;
+  height: 2px;
+  transform: translateY(-50%);
+}
+
+.crosshair-v {
+  left: 50%;
+  top: 0;
+  width: 2px;
+  height: 100%;
+  transform: translateX(-50%);
 }
 </style>

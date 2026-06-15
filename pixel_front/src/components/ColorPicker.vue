@@ -104,13 +104,17 @@ async function activateEyedropper() {
 // 绘制渐变色盘
 function drawColorPicker(canvas) {
   if (!canvas) return;
-  
+
   const ctx = canvas.getContext('2d');
-  canvas.width = 220;
-  canvas.height = 140;
-  
+  // 根据容器宽度动态设置 canvas 分辨率，避免在移动端模糊
+  const rect = canvas.getBoundingClientRect();
+  const cssWidth = Math.max(rect.width || 220, 220);
+  const cssHeight = 140;
+  canvas.width = cssWidth;
+  canvas.height = cssHeight;
+
   // 创建水平渐变 (彩虹色)
-  const gradient = ctx.createLinearGradient(0, 0, canvas.width, 0);
+  const gradient = ctx.createLinearGradient(0, 0, cssWidth, 0);
   gradient.addColorStop(0, 'red');
   gradient.addColorStop(0.16, 'orange');
   gradient.addColorStop(0.33, 'yellow');
@@ -118,19 +122,19 @@ function drawColorPicker(canvas) {
   gradient.addColorStop(0.66, 'blue');
   gradient.addColorStop(0.83, 'indigo');
   gradient.addColorStop(1, 'violet');
-  
+
   ctx.fillStyle = gradient;
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  
+  ctx.fillRect(0, 0, cssWidth, cssHeight);
+
   // 创建垂直渐变 (白色到黑色) 覆盖在彩虹色上
-  const verticalGradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+  const verticalGradient = ctx.createLinearGradient(0, 0, 0, cssHeight);
   verticalGradient.addColorStop(0, 'rgba(255, 255, 255, 1)');
   verticalGradient.addColorStop(0.5, 'rgba(255, 255, 255, 0)');
   verticalGradient.addColorStop(0.5, 'rgba(0, 0, 0, 0)');
   verticalGradient.addColorStop(1, 'rgba(0, 0, 0, 1)');
-  
+
   ctx.fillStyle = verticalGradient;
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillRect(0, 0, cssWidth, cssHeight);
 }
 
 // 组件挂载后绘制色盘
@@ -232,6 +236,12 @@ onMounted(() => {
   display: grid;
   grid-template-columns: repeat(8, 1fr);
   gap: 4px;
+}
+
+@media (max-width: 480px) {
+  .preset-grid {
+    grid-template-columns: repeat(6, 1fr);
+  }
 }
 
 .preset-color {

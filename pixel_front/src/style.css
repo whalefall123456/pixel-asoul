@@ -39,10 +39,18 @@
   box-sizing: border-box;
 }
 
+html,
+body {
+  height: 100%;
+  overflow-x: hidden;
+}
+
 body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
+  overscroll-behavior: none;
+  -webkit-overflow-scrolling: auto;
 }
 
 a {
