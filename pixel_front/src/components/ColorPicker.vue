@@ -14,15 +14,31 @@ const colorPickerCanvas = ref(null);
 // 颜色输入框引用
 const colorInput = ref(null);
 
-// 常用颜色
-const commonColors = ref([
-  '#9AC8E2', '#DB7D74', '#B8A6D9', '#E799B0', '#576690', '#FFFFFF'
-]);
-
-// 组件挂载后绘制色盘
-onMounted(() => {
-  drawColorPicker(colorPickerCanvas.value);
-});
+// 预设颜色 - 分组排列
+const presetColors = [
+  // 基础色
+  '#FFFFFF', '#C0C0C0', '#808080', '#000000',
+  // 红色系
+  '#FF0000', '#CC0000', '#990000', '#660000',
+  // 橙色系
+  '#FF8800', '#CC6600', '#994400', '#663300',
+  // 黄色系
+  '#FFFF00', '#CCCC00', '#999900', '#666600',
+  // 绿色系
+  '#00FF00', '#00CC00', '#009900', '#006600',
+  // 青色系
+  '#00FFFF', '#00CCCC', '#009999', '#006666',
+  // 蓝色系
+  '#0000FF', '#0000CC', '#000099', '#000066',
+  // 紫色系
+  '#8800FF', '#6600CC', '#440099', '#330066',
+  // 粉色系
+  '#FF00FF', '#CC00CC', '#990099', '#660066',
+  // 皮肤色
+  '#FFDAB9', '#F5DEB3', '#D2B48C', '#8B4513',
+  // ASOUL 相关色
+  '#9AC8E2', '#DB7D74', '#B8A6D9', '#E799B0', '#576690',
+];
 
 // 选择颜色
 function selectColor(color) {
@@ -32,12 +48,9 @@ function selectColor(color) {
 // 处理颜色输入
 function handleColorInput(event) {
   const color = event.target.value;
-  // 验证颜色格式是否正确
   if (isValidColor(color) || color === '' || (color.startsWith('#') && color.length < 7)) {
-    // 只有在颜色有效、为空或者以#开头但长度小于7（正在输入中）时才更新
     emit('update:modelValue', color);
   } else {
-    // 如果颜色无效，则清空选择
     emit('update:modelValue', '');
   }
 }
@@ -45,13 +58,9 @@ function handleColorInput(event) {
 // 验证颜色格式是否正确
 function isValidColor(color) {
   if (!color) return false;
-  
   const canvas = document.createElement('canvas');
   const ctx = canvas.getContext('2d');
   ctx.fillStyle = color;
-  
-  // 如果颜色有效，fillStyle会保持原值或转换为标准格式
-  // 如果颜色无效，fillStyle会变成默认值（通常是#000000）
   return ctx.fillStyle !== '#000000' || 
          color === '#000000' || 
          color.toLowerCase() === 'black' ||
@@ -63,8 +72,10 @@ function isValidColor(color) {
 function handleColorPickerClick(event) {
   const canvas = colorPickerCanvas.value;
   const rect = canvas.getBoundingClientRect();
-  const x = event.clientX - rect.left;
-  const y = event.clientY - rect.top;
+  const scaleX = canvas.width / rect.width;
+  const scaleY = canvas.height / rect.height;
+  const x = (event.clientX - rect.left) * scaleX;
+  const y = (event.clientY - rect.top) * scaleY;
   
   const ctx = canvas.getContext('2d');
   const imageData = ctx.getImageData(x, y, 1, 1);
@@ -86,7 +97,6 @@ async function activateEyedropper() {
     const result = await eyeDropper.open();
     selectColor(result.sRGBHex);
   } catch (error) {
-    // 用户取消操作或其他错误
     console.log('吸管工具操作被取消或出现错误:', error);
   }
 }
@@ -96,8 +106,8 @@ function drawColorPicker(canvas) {
   if (!canvas) return;
   
   const ctx = canvas.getContext('2d');
-  canvas.width = 200;
-  canvas.height = 150;
+  canvas.width = 220;
+  canvas.height = 140;
   
   // 创建水平渐变 (彩虹色)
   const gradient = ctx.createLinearGradient(0, 0, canvas.width, 0);
@@ -122,15 +132,19 @@ function drawColorPicker(canvas) {
   ctx.fillStyle = verticalGradient;
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 }
+
+// 组件挂载后绘制色盘
+onMounted(() => {
+  drawColorPicker(colorPickerCanvas.value);
+});
 </script>
 
 <template>
-  <div class="color-picker">
-    <h3>颜色选择器</h3>
+  <div class="color-picker card">
+    <h3 class="card-title">颜色选择器</h3>
     
     <!-- 渐变色盘 -->
-    <div class="color-picker-section">
-      <h4>色盘</h4>
+    <div class="section">
       <canvas 
         ref="colorPickerCanvas"
         class="color-picker-canvas"
@@ -138,31 +152,31 @@ function drawColorPicker(canvas) {
       ></canvas>
     </div>
     
-    <!-- 常用颜色 -->
-    <div class="common-colors-section">
-      <h4>常用颜色</h4>
-      <div class="common-colors">
+    <!-- 预设颜色 -->
+    <div class="section">
+      <div class="preset-grid">
         <div 
-          v-for="color in commonColors" 
+          v-for="color in presetColors" 
           :key="color"
-          class="color-option common-color"
+          class="preset-color"
           :class="{ selected: modelValue === color }"
           :style="{ backgroundColor: color }"
+          :title="color"
           @click="selectColor(color)"
         ></div>
       </div>
     </div>
     
     <!-- 颜色输入框 -->
-    <div class="color-input-section">
-      <h4>自定义颜色</h4>
-      <div class="color-input-container">
+    <div class="section">
+      <div class="color-input-row">
+        <div class="color-preview" :style="{ backgroundColor: modelValue || '#ffffff' }"></div>
         <input 
           ref="colorInput"
           type="text" 
           :value="modelValue" 
           @input="handleColorInput"
-          placeholder="#RRGGBB 或颜色名称"
+          placeholder="#RRGGBB"
           class="color-input"
         />
         <button 
@@ -170,128 +184,131 @@ function drawColorPicker(canvas) {
           class="eyedropper-btn"
           title="吸管工具"
         >
-          🎯
+          💉
         </button>
       </div>
-    </div>
-    
-    <div class="selected-color">
-      当前选择: 
-      <span class="color-preview" :style="{ backgroundColor: modelValue }"></span>
-      {{ modelValue }}
     </div>
   </div>
 </template>
 
 <style scoped>
-.color-picker {
-  background-color: #f5f5f5;
-  padding: 15px;
-  border-radius: 8px;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+.card {
+  background: var(--bg-card);
+  border-radius: var(--radius-lg);
+  padding: 16px;
+  box-shadow: var(--shadow);
+  border: 1px solid var(--border-light);
 }
 
-.color-picker h3 {
-  margin-top: 0;
-  margin-bottom: 15px;
-}
-
-.color-picker h4 {
-  margin-top: 0;
-  margin-bottom: 10px;
-  font-size: 16px;
+.card-title {
+  font-size: 14px;
   font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-light);
 }
 
-.color-picker-section {
-  margin-bottom: 15px;
+.section {
+  margin-bottom: 12px;
 }
 
+.section:last-child {
+  margin-bottom: 0;
+}
+
+/* 色盘 */
 .color-picker-canvas {
-  width: 200px;
-  height: 150px;
-  border: 1px solid #ccc;
+  width: 100%;
+  height: 100px;
+  border-radius: var(--radius-sm);
+  cursor: crosshair;
+  border: 1px solid var(--border);
+  display: block;
+}
+
+/* 预设颜色网格 */
+.preset-grid {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 4px;
+}
+
+.preset-color {
+  aspect-ratio: 1;
   border-radius: 4px;
   cursor: pointer;
-}
-
-.common-colors-section {
-  margin-bottom: 15px;
-}
-
-.common-colors {
-  display: flex;
-  gap: 8px;
-}
-
-.color-option {
-  width: 30px;
-  height: 30px;
   border: 2px solid transparent;
-  border-radius: 4px;
-  cursor: pointer;
-  transition: border-color 0.2s;
+  transition: all var(--transition);
+  position: relative;
 }
 
-.color-option:hover {
-  border-color: #333;
+.preset-color:hover {
+  transform: scale(1.15);
+  z-index: 1;
+  border-color: var(--text-secondary);
 }
 
-.color-option.selected {
-  border-color: #333;
-  box-shadow: 0 0 0 2px white, 0 0 0 4px #333;
+.preset-color.selected {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px var(--primary-light);
+  transform: scale(1.1);
+  z-index: 1;
 }
 
-.common-color {
-  width: 40px;
-  height: 40px;
-  border-radius: 6px;
-}
-
-.color-input-section {
-  margin-bottom: 15px;
-}
-
-.color-input-container {
-  display: flex;
-  gap: 5px;
-}
-
-.color-input {
-  flex: 1;
-  padding: 8px;
-  border: 1px solid #ccc;
-  border-radius: 4px;
-  font-family: monospace;
-}
-
-.eyedropper-btn {
-  width: 40px;
-  border: 1px solid #ccc;
-  border-radius: 4px;
-  background-color: #f0f0f0;
-  cursor: pointer;
-  font-size: 16px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.eyedropper-btn:hover {
-  background-color: #e0e0e0;
-}
-
-.selected-color {
-  margin-top: 10px;
+/* 颜色输入行 */
+.color-input-row {
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
 .color-preview {
-  width: 20px;
-  height: 20px;
-  border: 1px solid #ccc;
-  display: inline-block;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-sm);
+  border: 2px solid var(--border);
+  flex-shrink: 0;
+  transition: border-color var(--transition);
+}
+
+.color-input {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-family: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
+  font-size: 13px;
+  color: var(--text-primary);
+  background: var(--bg-card);
+  transition: border-color var(--transition);
+  outline: none;
+}
+
+.color-input:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-light);
+}
+
+.eyedropper-btn {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+  cursor: pointer;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--transition);
+  flex-shrink: 0;
+}
+
+.eyedropper-btn:hover {
+  background: var(--primary-light);
+  border-color: var(--primary);
 }
 </style>

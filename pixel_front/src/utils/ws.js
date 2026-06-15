@@ -13,7 +13,6 @@ class WSClient {
    * @param {string} url - WebSocket服务器地址
    */
   connect(url) {
-    // 如果处于模拟模式，不实际连接
     this.ws = new WebSocket(url);
     
     this.ws.onopen = (event) => {
@@ -25,13 +24,13 @@ class WSClient {
     this.ws.onmessage = (event) => {
       try {
         const message = JSON.parse(event.data);
-        // 根据后端API调整消息类型映射
         if (message.type === "pixel_update") {
           this.emit('pixel_update', message.data);
         } else if (message.type === "limited") {
           this.emit('limited', message.data);
-        }else if(message.type === "visit_stats")
+        } else if (message.type === "visit_stats") {
           this.emit('stats', message.data);
+        }
       } catch (error) {
         console.error('解析WebSocket消息失败:', error);
       }
@@ -61,20 +60,8 @@ class WSClient {
    * @param {Object} data - 消息数据
    */
   send(type, data) {
-    if (this.isMockMode) {
-      // 在模拟模式下，直接处理消息
-      switch (type) {
-        case 'pixel_place':
-          // 模拟服务器确认像素放置
-          this.emit('pixel_update', data);
-          break;
-      }
-      return;
-    }
-
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       let message = null;
-      // 根据后端API调整发送消息格式
       if (type === 'pixel_place') {
         message = {
           type: "pixel_update",
@@ -131,12 +118,6 @@ class WSClient {
    * 关闭WebSocket连接
    */
   close() {
-    this.stopMockDrawing();
-    
-    if (this.isMockMode) {
-      return;
-    }
-    
     if (this.ws) {
       this.ws.close();
     }

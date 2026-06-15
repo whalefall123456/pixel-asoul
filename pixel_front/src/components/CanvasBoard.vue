@@ -32,18 +32,23 @@ const isDraggingForPlacement = ref(false); // 新增：用于判断是否为放�
 const dragScaleX = ref(1); // 新增：拖拽时的水平比例修正
 const dragScaleY = ref(1); // 新增：拖拽时的垂直比例修正
 
+// 悬停像素指示
+const hoverPixelX = ref(-1);
+const hoverPixelY = ref(-1);
+
 // 一些便捷尺寸
 const baseCanvasWidth = computed(() => props.width * props.pixelSize);
 const baseCanvasHeight = computed(() => props.height * props.pixelSize);
 
 // 容器样式：容器大小 = 基础画布大小（最小显示尺寸）
+// 注意：border 宽度必须保持 2px，与 getLocalPosInContainer 中的 clientLeft 计算一致
 const canvasContainerStyle = computed(() => ({
   width: `${baseCanvasWidth.value}px`,
   height: `${baseCanvasHeight.value}px`,
   backgroundColor: '#fff',
-  border: '2px solid #333',
-  borderRadius: '4px',
-  boxShadow: '0 4px 8px rgba(0,0,0,0.2)',
+  border: '2px solid var(--border, #e2e8f0)',
+  borderRadius: 'var(--radius, 10px)',
+  boxShadow: '0 4px 12px rgba(0,0,0,0.08), 0 1px 3px rgba(0,0,0,0.06)',
   display: 'inline-block',
   flexShrink: 0,
   position: 'relative',
@@ -83,7 +88,7 @@ onMounted(async () => {
   canvas.addEventListener('mousedown', handleMouseDown);
   canvas.addEventListener('mousemove', handleMouseMove);
   canvas.addEventListener('mouseup', handleMouseUp);
-  canvas.addEventListener('mouseleave', handleMouseUp);
+  canvas.addEventListener('mouseleave', handleMouseLeave);
 
   // WebSocket
   ws.on('pixel_update', handlePixelUpdate);
@@ -116,7 +121,7 @@ onBeforeUnmount(() => {
     canvas.removeEventListener('mousedown', handleMouseDown);
     canvas.removeEventListener('mousemove', handleMouseMove);
     canvas.removeEventListener('mouseup', handleMouseUp);
-    canvas.removeEventListener('mouseleave', handleMouseUp);
+    canvas.removeEventListener('mouseleave', handleMouseLeave);
   }
   ws.off('pixel_update', handlePixelUpdate);
   ws.off('initial_canvas', drawFullCanvas);
@@ -196,6 +201,9 @@ function handleMouseDown(event) {
 }
 
 function handleMouseMove(event) {
+  // 更新悬停像素位置（无论是否拖拽）
+  updateHoverPixel(event);
+
   if (!isDragging.value) return;
 
   // 计算物理位移
@@ -230,6 +238,44 @@ function handleMouseUp() {
   if (canvasRef.value) {
     canvasRef.value.style.cursor = isCoolingDown.value ? 'not-allowed' : 'pointer';
   }
+}
+
+// 更新悬停像素位置
+function updateHoverPixel(event) {
+  const { x: mx, y: my } = getLocalPosInContainer(event);
+  const canvasX = (mx - translateX.value) / scale.value;
+  const canvasY = (my - translateY.value) / scale.value;
+  const px = Math.floor(canvasX / props.pixelSize);
+  const py = Math.floor(canvasY / props.pixelSize);
+
+  if (px >= 0 && px < props.width && py >= 0 && py < props.height) {
+    hoverPixelX.value = px;
+    hoverPixelY.value = py;
+  } else {
+    hoverPixelX.value = -1;
+    hoverPixelY.value = -1;
+  }
+}
+
+// 悬停高亮样式
+const highlightStyle = computed(() => {
+  if (hoverPixelX.value < 0 || hoverPixelY.value < 0 || isCoolingDown.value) return null;
+  const ps = props.pixelSize;
+  const s = scale.value;
+  const tx = translateX.value + hoverPixelX.value * ps * s;
+  const ty = translateY.value + hoverPixelY.value * ps * s;
+  const size = ps * s;
+  return {
+    transform: `translate(${tx}px, ${ty}px)`,
+    width: `${size}px`,
+    height: `${size}px`,
+  };
+});
+
+function handleMouseLeave() {
+  handleMouseUp();
+  hoverPixelX.value = -1;
+  hoverPixelY.value = -1;
 }
 
 function handleCanvasClick(event) {
@@ -289,82 +335,30 @@ function drawPixel(x, y, color) {
   );
 }
 
-// imageData应该是后端返回的data URL格式: "data:image/png;base64,..."
-function drawPNGImageFromDataURL(imageData, offsetX = 0, offsetY = 0) {
-  const startTime = performance.now(); // 记录开始时间
-  
+// imageData 是后端返回的 data URL 格式: "data:image/png;base64,..."
+// 直接把 PNG 快照绘制到画布上（1000x1000 按 pixelSize 缩放）
+function drawPNGImageFromDataURL(imageData) {
+  const startTime = performance.now();
+
   const img = new Image();
-  img.src = imageData; // imageData是后端返回的data URL格式的PNG图片数据
-  
+  img.src = imageData;
+
   img.onload = () => {
     if (!ctx.value) return;
-    
-    try {
-      // 创建临时canvas来获取图片像素数据
-      const tempCanvas = document.createElement('canvas');
-      const tempCtx = tempCanvas.getContext('2d');
-      tempCanvas.width = img.width;
-      tempCanvas.height = img.height;
-      tempCtx.drawImage(img, 0, 0);
-      
-      // 获取图片像素数据
-      const imgData = tempCtx.getImageData(0, 0, img.width, img.height);
-      const data = imgData.data;
-      
-      // 保存当前上下文状态
-      ctx.value.save();
-      ctx.value.imageSmoothingEnabled = false;
-      
-      // 使用ImageData对象更高效地处理像素数据
-      const pixelSize = props.pixelSize;
-      const width = props.width;
-      const height = props.height;
-      
-      // 批量处理像素以提高性能
-      for (let i = 0; i < data.length; i += 4) {
-        const a = data[i + 3];
-        
-        // 只绘制不透明像素
-        if (a > 0) {
-          const r = data[i];
-          const g = data[i + 1];
-          const b = data[i + 2];
-          
-          // 计算像素位置
-          const pixelIndex = i / 4;
-          const x = pixelIndex % img.width;
-          const y = Math.floor(pixelIndex / img.width);
-          
-          const pixelX = offsetX + x;
-          const pixelY = offsetY + y;
-          
-          // 检查边界
-          if (pixelX >= 0 && pixelX < width && pixelY >= 0 && pixelY < height) {
-            ctx.value.fillStyle = `rgb(${r}, ${g}, ${b})`;
-            ctx.value.fillRect(
-              pixelX * pixelSize,
-              pixelY * pixelSize,
-              pixelSize,
-              pixelSize
-            );
-          }
-        }
-      }
-      
-      // 恢复上下文状态
-      ctx.value.restore();
-    } catch (error) {
-      console.error('绘制PNG图像时出错:', error);
-    }
-    
-    const endTime = performance.now(); // 记录结束时间
-    console.log(`drawPNGImageFromDataURL函数运行时长: ${endTime - startTime} 毫秒`);
-  };
-  
-  img.onerror = (error) => {
-    console.error('加载PNG图像时出错:', error);
+
+    ctx.value.save();
+    ctx.value.imageSmoothingEnabled = false;
+    ctx.value.drawImage(img, 0, 0, baseCanvasWidth.value, baseCanvasHeight.value);
+    ctx.value.restore();
+
     const endTime = performance.now();
-    console.log(`drawPNGImageFromDataURL函数运行时长(失败): ${endTime - startTime} 毫秒`);
+    console.log(`drawPNGImageFromDataURL 运行时长: ${endTime - startTime} 毫秒`);
+  };
+
+  img.onerror = (error) => {
+    console.error('加载 PNG 图像时出错:', error);
+    const endTime = performance.now();
+    console.log(`drawPNGImageFromDataURL 运行时长(失败): ${endTime - startTime} 毫秒`);
   };
 }
 
@@ -547,6 +541,14 @@ defineExpose({ resetView });
       class="pixel-canvas"
       :style="{ ...canvasTransformStyle, cursor: canvasCursor }"
     ></canvas>
+    <div 
+      v-if="highlightStyle"
+      class="pixel-highlight"
+      :style="highlightStyle"
+    ></div>
+    <div v-if="hoverPixelX >= 0 && hoverPixelY >= 0" class="coord-badge">
+      ({{ hoverPixelX }}, {{ hoverPixelY }})
+    </div>
   </div>
 </template>
 
@@ -559,7 +561,28 @@ defineExpose({ resetView });
   image-rendering: crisp-edges;
   transform-origin: 0 0;
 }
-.pixel-canvas.cooldown {
-  cursor: not-allowed;
+
+.pixel-highlight {
+  position: absolute;
+  top: 0;
+  left: 0;
+  background: rgba(99, 102, 241, 0.3);
+  border: 1.5px solid rgba(99, 102, 241, 0.8);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.coord-badge {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  padding: 3px 8px;
+  background: rgba(30, 41, 59, 0.8);
+  color: #fff;
+  font-size: 12px;
+  font-family: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
+  border-radius: 4px;
+  pointer-events: none;
+  z-index: 10;
 }
 </style>

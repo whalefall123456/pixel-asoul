@@ -17,6 +17,7 @@ lerna-debug.log*
 *.njsproj
 *.sln
 *.sw?
+.gitignore
 
 #front
 pixel_front/node_modules/
@@ -33,3 +34,7 @@ pixel_back/*.sql
 pixel_back/*.bat
 pixel_back/*.sh
 pixel_back/*.http
+
+
+#agent
+CLAUDE.md
