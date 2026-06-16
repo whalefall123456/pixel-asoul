@@ -18,6 +18,7 @@ const isColorPickerOpen = ref(false);
 const isCrosshairMode = ref(true);
 const isInfoOpen = ref(false);
 const mobileCooldown = ref(0);
+const crosshairCoord = ref(null);
 let mobileCooldownTimer = null;
 
 // 统计信息
@@ -175,10 +176,10 @@ function handlePlacePixel() {
     <header class="app-header" :class="{ mobile: isMobile }">
       <div class="header-left">
         <div class="logo">
-          <span class="logo-icon">🎨</span>
-          <div v-if="!isMobile" class="logo-text">
-            <h1 class="title">A手像素画板</h1>
-            <p class="subtitle">多人在线像素艺术协作平台</p>
+          <img src="./assets/icon.png" alt="A手像素画板" class="logo-img" />
+          <div class="logo-text">
+            <h1 class="title" :class="{ mobile: isMobile }">A手像素画板</h1>
+            <p v-if="!isMobile" class="subtitle">多人在线像素艺术协作平台</p>
           </div>
         </div>
       </div>
@@ -263,6 +264,7 @@ function handlePlacePixel() {
             :is-mobile="true"
             :is-crosshair-mode="isCrosshairMode"
             @pixel-placed="() => {}"
+            @crosshair-change="crosshairCoord = $event"
           />
         </main>
       </div>
@@ -278,9 +280,11 @@ function handlePlacePixel() {
         :selected-color="selectedColor"
         :cooldown-seconds="mobileCooldown"
         :is-crosshair-mode="isCrosshairMode"
+        :crosshair-coord="crosshairCoord"
         @open-color-picker="openColorPicker"
         @place-pixel="handlePlacePixel"
         @toggle-crosshair="toggleCrosshair"
+        @select-color="selectedColor = $event"
       />
 
       <!-- 移动端颜色选择抽屉 -->
@@ -291,7 +295,7 @@ function handlePlacePixel() {
               <h3>选择颜色</h3>
               <button class="close-btn" @click="closeColorPicker">✕</button>
             </div>
-            <ColorPicker v-model="selectedColor" />
+            <ColorPicker v-model="selectedColor" :show-eyedropper="false" />
           </div>
         </div>
       </Transition>
@@ -421,6 +425,23 @@ function handlePlacePixel() {
   right: 0;
   background: rgba(255, 255, 255, 0.95);
   backdrop-filter: blur(10px);
+  flex-direction: row !important;
+  gap: 8px;
+}
+
+.app-header.mobile .header-left,
+.app-header.mobile .header-right {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.app-header.mobile .header-left {
+  flex: 0 0 auto;
+}
+
+.app-header.mobile .header-right {
+  display: flex;
+  justify-content: flex-end;
 }
 
 .header-left {
@@ -431,11 +452,20 @@ function handlePlacePixel() {
 .logo {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
 }
 
-.logo-icon {
-  font-size: 28px;
+.logo-img {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+.app-header.mobile .logo-img {
+  width: 28px;
+  height: 28px;
 }
 
 .logo-text {
@@ -450,6 +480,14 @@ function handlePlacePixel() {
   letter-spacing: -0.02em;
 }
 
+.title.mobile {
+  font-size: 14px;
+  max-width: 90px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .subtitle {
   font-size: 12px;
   color: var(--text-secondary);
@@ -460,6 +498,7 @@ function handlePlacePixel() {
 .header-right {
   display: flex;
   align-items: center;
+  min-width: 0;
 }
 
 .stats-bar {
@@ -468,7 +507,7 @@ function handlePlacePixel() {
 }
 
 .app-header.mobile .stats-bar {
-  gap: 8px;
+  gap: 5px;
 }
 
 .stat-chip {
@@ -479,17 +518,26 @@ function handlePlacePixel() {
   background: var(--bg-body);
   border-radius: 20px;
   font-size: 13px;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .app-header.mobile .stat-chip {
-  padding: 4px 8px;
-  font-size: 12px;
+  padding: 2px 6px;
+  font-size: 10px;
+  gap: 3px;
 }
 
 .stat-dot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.app-header.mobile .stat-dot {
+  width: 6px;
+  height: 6px;
 }
 
 .stat-dot.online {
@@ -510,9 +558,17 @@ function handlePlacePixel() {
   color: var(--text-primary);
 }
 
+.app-header.mobile .stat-num {
+  font-size: 10px;
+}
+
 .stat-label {
   color: var(--text-secondary);
   font-size: 12px;
+}
+
+.app-header.mobile .stat-label {
+  font-size: 9px;
 }
 
 /* ===== 主体布局 ===== */
@@ -664,7 +720,7 @@ function handlePlacePixel() {
 /* ===== 移动端布局 ===== */
 .mobile-layout {
   position: fixed;
-  top: 100px;
+  top: 50px;
   left: 0;
   right: 0;
   bottom: 76px;
@@ -727,7 +783,12 @@ function handlePlacePixel() {
   background: var(--bg-card);
   border-radius: 50%;
   font-size: 16px;
+  line-height: 1;
   cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
 }
 
 .drawer-enter-active,
@@ -762,7 +823,7 @@ function handlePlacePixel() {
 }
 
 @media (max-width: 1200px) {
-  .app-header {
+  .app-header:not(.mobile) {
     flex-direction: column;
     gap: 8px;
     padding: 10px 16px;

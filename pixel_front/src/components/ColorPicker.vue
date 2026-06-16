@@ -3,7 +3,8 @@ import { ref, onMounted } from 'vue';
 
 // 颜色选择器属性
 const props = defineProps({
-  modelValue: { type: String, required: true }
+  modelValue: { type: String, required: true },
+  showEyedropper: { type: Boolean, default: true }
 });
 
 // 颜色选择器事件
@@ -146,21 +147,44 @@ onMounted(() => {
 <template>
   <div class="color-picker card">
     <h3 class="card-title">颜色选择器</h3>
-    
+
+    <!-- 颜色输入框 -->
+    <div class="section">
+      <div class="color-input-row">
+        <div class="color-preview" :style="{ backgroundColor: modelValue || '#ffffff' }"></div>
+        <input
+          ref="colorInput"
+          type="text"
+          :value="modelValue"
+          @input="handleColorInput"
+          placeholder="#RRGGBB"
+          class="color-input"
+        />
+        <button
+          v-if="showEyedropper"
+          @click="activateEyedropper"
+          class="eyedropper-btn"
+          title="吸管工具"
+        >
+          💉
+        </button>
+      </div>
+    </div>
+
     <!-- 渐变色盘 -->
     <div class="section">
-      <canvas 
+      <canvas
         ref="colorPickerCanvas"
         class="color-picker-canvas"
         @click="handleColorPickerClick"
       ></canvas>
     </div>
-    
+
     <!-- 预设颜色 -->
     <div class="section">
       <div class="preset-grid">
-        <div 
-          v-for="color in presetColors" 
+        <div
+          v-for="color in presetColors"
           :key="color"
           class="preset-color"
           :class="{ selected: modelValue === color }"
@@ -168,28 +192,6 @@ onMounted(() => {
           :title="color"
           @click="selectColor(color)"
         ></div>
-      </div>
-    </div>
-    
-    <!-- 颜色输入框 -->
-    <div class="section">
-      <div class="color-input-row">
-        <div class="color-preview" :style="{ backgroundColor: modelValue || '#ffffff' }"></div>
-        <input 
-          ref="colorInput"
-          type="text" 
-          :value="modelValue" 
-          @input="handleColorInput"
-          placeholder="#RRGGBB"
-          class="color-input"
-        />
-        <button 
-          @click="activateEyedropper" 
-          class="eyedropper-btn"
-          title="吸管工具"
-        >
-          💉
-        </button>
       </div>
     </div>
   </div>

@@ -14,7 +14,7 @@ const props = defineProps({
 
 const cooldownEventBus = inject('cooldownEventBus')
 const isCoolingDown = ref(false);
-const emit = defineEmits(['pixel-placed']);
+const emit = defineEmits(['pixel-placed', 'crosshair-change']);
 const containerRef = ref(null); // 新增：容器引用
 // 响应式状态（translate 以"像素"为单位）
 const canvasRef = ref(null);
@@ -291,7 +291,7 @@ function updateHoverPixel(event) {
 
 // 悬停高亮样式
 const highlightStyle = computed(() => {
-  if (hoverPixelX.value < 0 || hoverPixelY.value < 0 || isCoolingDown.value || isInteracting.value) return null;
+  if (props.isMobile || hoverPixelX.value < 0 || hoverPixelY.value < 0 || isCoolingDown.value || isInteracting.value) return null;
   const ps = props.pixelSize;
   const s = scale.value;
   const tx = translateX.value + hoverPixelX.value * ps * s;
@@ -335,6 +335,18 @@ const crosshairStyle = computed(() => {
     height: `${size}px`,
   };
 });
+
+// 准星坐标变化时通知父组件
+watch(crosshairPixel, (newVal, oldVal) => {
+  if (
+    !oldVal ||
+    !newVal ||
+    oldVal.x !== newVal.x ||
+    oldVal.y !== newVal.y
+  ) {
+    emit('crosshair-change', newVal);
+  }
+}, { immediate: true });
 
 function handleMouseLeave() {
   handleMouseUp();
@@ -423,8 +435,8 @@ function handleTouchMove(event) {
 function handleTouchEnd(event) {
   if (event.touches.length === 0) {
     // 所有手指离开
-    if (isTouchDragging.value && !hasMoved.value && props.isMobile && !props.isCrosshairMode) {
-      // 在移动端非准星模式下，轻点画布直接放置
+    if (isTouchDragging.value && !hasMoved.value && props.isMobile && !isCoolingDown.value) {
+      // 移动端轻点画布直接放置像素（无论是否开启准星模式）
       const touch = event.changedTouches[0];
       placeAtPoint(touch.clientX, touch.clientY);
     }
@@ -798,6 +810,15 @@ defineExpose({
   image-rendering: -moz-crisp-edges;
   image-rendering: crisp-edges;
   transform-origin: 0 0;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.canvas-container {
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .pixel-highlight {

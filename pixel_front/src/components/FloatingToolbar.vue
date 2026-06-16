@@ -22,7 +22,7 @@ defineEmits(['zoom-in', 'zoom-out', 'reset-view', 'toggle-info']);
 <style scoped>
 .floating-toolbar {
   position: fixed;
-  top: 100px;
+  top: 60px;
   right: 12px;
   display: flex;
   flex-direction: column;

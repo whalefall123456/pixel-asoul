@@ -5,10 +5,11 @@ const props = defineProps({
   selectedColor: { type: String, required: true },
   cooldownSeconds: { type: Number, default: 0 },
   isCrosshairMode: { type: Boolean, default: true },
-  disabled: { type: Boolean, default: false }
+  disabled: { type: Boolean, default: false },
+  crosshairCoord: { type: Object, default: null }
 });
 
-const emit = defineEmits(['open-color-picker', 'place-pixel', 'toggle-crosshair']);
+const emit = defineEmits(['open-color-picker', 'place-pixel', 'toggle-crosshair', 'select-color']);
 
 const showToast = inject('showToast');
 
@@ -23,19 +24,48 @@ function handlePlace() {
   }
   emit('place-pixel');
 }
+
+async function activateEyedropper() {
+  if (!('EyeDropper' in window)) {
+    showToast?.('您的浏览器不支持吸管工具，请使用 Chrome 95+', 'warning');
+    return;
+  }
+
+  try {
+    const eyeDropper = new window.EyeDropper();
+    const result = await eyeDropper.open();
+    emit('select-color', result.sRGBHex);
+    showToast?.('已吸取颜色', 'success');
+  } catch (error) {
+    // 用户取消或出错，无需提示
+    console.log('吸管工具操作被取消或出现错误:', error);
+  }
+}
 </script>
 
 <template>
   <div class="mobile-toolbar">
-    <!-- 颜色选择器入口 -->
-    <button
-      class="tool-btn color-btn"
-      :style="{ backgroundColor: selectedColor || '#ffffff' }"
-      @click="$emit('open-color-picker')"
-      aria-label="打开颜色选择器"
-    >
-      <span class="icon">🎨</span>
-    </button>
+    <div class="left-tools">
+      <!-- 吸管工具 -->
+      <button
+        class="tool-btn eyedropper-btn"
+        @click="activateEyedropper"
+        aria-label="吸管工具"
+        title="吸管工具"
+      >
+        <span class="icon">💉</span>
+      </button>
+
+      <!-- 颜色选择器入口 -->
+      <button
+        class="tool-btn color-btn"
+        :style="{ backgroundColor: selectedColor || '#ffffff' }"
+        @click="$emit('open-color-picker')"
+        aria-label="打开颜色选择器"
+      >
+        <span class="icon">🎨</span>
+      </button>
+    </div>
 
     <!-- 放置像素主按钮 -->
     <button
@@ -48,6 +78,14 @@ function handlePlace() {
         {{ cooldownSeconds > 0 ? `冷却 ${cooldownSeconds}s` : '放置像素' }}
       </span>
     </button>
+
+    <!-- 当前准星坐标 -->
+    <div class="coord-display">
+      <span v-if="crosshairCoord">
+        ({{ crosshairCoord.x }}, {{ crosshairCoord.y }})
+      </span>
+      <span v-else class="coord-empty">--</span>
+    </div>
 
     <!-- 准星开关 -->
     <button
@@ -70,8 +108,8 @@ function handlePlace() {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+  gap: 10px;
+  padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
   background: rgba(255, 255, 255, 0.95);
   backdrop-filter: blur(10px);
   border-top: 1px solid var(--border, #e2e8f0);
@@ -79,9 +117,15 @@ function handlePlace() {
   box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.08);
 }
 
+.left-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .tool-btn {
-  width: 48px;
-  height: 48px;
+  width: 44px;
+  height: 44px;
   border-radius: 50%;
   border: 2px solid var(--border, #e2e8f0);
   background: var(--bg-card, #ffffff);
@@ -104,27 +148,30 @@ function handlePlace() {
 }
 
 .icon {
-  font-size: 22px;
+  font-size: 20px;
   line-height: 1;
 }
 
 .place-btn {
   flex: 1;
-  height: 50px;
+  height: 46px;
+  min-width: 100px;
   max-width: 240px;
   border: none;
-  border-radius: 25px;
+  border-radius: 23px;
   background: linear-gradient(135deg, var(--primary, #6366f1), var(--primary-hover, #4f46e5));
   color: white;
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 600;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: 6px;
   cursor: pointer;
   box-shadow: 0 4px 14px rgba(99, 102, 241, 0.35);
   transition: all 0.2s ease;
+  white-space: nowrap;
+  padding: 0 16px;
 }
 
 .place-btn:active {
@@ -143,11 +190,60 @@ function handlePlace() {
 }
 
 .place-icon {
-  font-size: 18px;
+  font-size: 16px;
 }
 
 .crosshair-btn.active {
   border-color: var(--primary, #6366f1);
   background: var(--primary-light, #e0e7ff);
+}
+
+.coord-display {
+  min-width: 62px;
+  padding: 5px 8px;
+  background: rgba(30, 41, 59, 0.85);
+  color: #fff;
+  border-radius: 12px;
+  font-size: 11px;
+  font-family: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.coord-empty {
+  opacity: 0.6;
+}
+
+@media (max-width: 380px) {
+  .mobile-toolbar {
+    gap: 6px;
+    padding: 8px;
+  }
+
+  .left-tools {
+    gap: 6px;
+  }
+
+  .tool-btn {
+    width: 40px;
+    height: 40px;
+  }
+
+  .icon {
+    font-size: 18px;
+  }
+
+  .place-btn {
+    min-width: 76px;
+    height: 42px;
+    font-size: 13px;
+    padding: 0 10px;
+  }
+
+  .coord-display {
+    min-width: 54px;
+    padding: 4px 6px;
+    font-size: 10px;
+  }
 }
 </style>
