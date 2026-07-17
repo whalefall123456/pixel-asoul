@@ -83,6 +83,10 @@ function stopMobileCooldown() {
 
 // 连接到WebSocket服务器
 onMounted(() => {
+  //移除H1
+  const seoH1 = document.getElementById('seo-h1')
+  if (seoH1) seoH1.remove()
+
   checkMobile();
   window.matchMedia('(max-width: 639px), (hover: none) and (pointer: coarse)').addEventListener('change', checkMobile);
 
