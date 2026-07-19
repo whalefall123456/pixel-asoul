@@ -35,6 +35,11 @@ pixel_back/*.bat
 pixel_back/*.sh
 pixel_back/*.http
 
+#python
+__pycache__/
+*.pyc
+*.pyo
+
 
 #agent
 CLAUDE.md
